@@ -71,6 +71,41 @@ func TestLogPollActivity(t *testing.T) {
 	}
 }
 
+func TestPollActivityDashboardMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		service string
+		attrs   []slog.Attr
+		want    string
+	}{
+		{
+			name:    "GitHub repository",
+			service: "github",
+			attrs:   []slog.Attr{slog.String("repo", "owner/repo")},
+			want:    "◌ polling github · owner/repo · every 30s",
+		},
+		{
+			name:    "Jira project",
+			service: "jira",
+			attrs:   []slog.Attr{slog.String("project", "PROJ")},
+			want:    "◌ polling jira · PROJ · every 30s",
+		},
+		{
+			name:    "No target",
+			service: "jira",
+			want:    "◌ polling jira · every 30s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pollActivityDashboardMessage(tt.service, 30*time.Second, tt.attrs...); got != tt.want {
+				t.Errorf("pollActivityDashboardMessage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAdapterPollerRegistrations_ReturnsAllFive(t *testing.T) {
 	regs := adapterPollerRegistrations()
 	if len(regs) != 8 {

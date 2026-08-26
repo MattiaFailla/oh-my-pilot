@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/qf-studio/pilot/internal/autopilot"
 	"github.com/qf-studio/pilot/internal/budget"
 	"github.com/qf-studio/pilot/internal/config"
+	"github.com/qf-studio/pilot/internal/dashboard"
 	"github.com/qf-studio/pilot/internal/executor"
 	"github.com/qf-studio/pilot/internal/logging"
 	"github.com/qf-studio/pilot/internal/memory"
@@ -93,6 +95,7 @@ func startPollActivityLog(ctx context.Context, deps *PollerDeps, adapterName, se
 	}
 
 	logPollActivity(ctx, logger, service, interval, attrs...)
+	publishPollActivity(deps.Program, service, interval, attrs...)
 	deps.SafeAdapterGo(ctx, adapterName+":poll-activity", func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -103,6 +106,7 @@ func startPollActivityLog(ctx context.Context, deps *PollerDeps, adapterName, se
 				return
 			case <-ticker.C:
 				logPollActivity(ctx, logger, service, interval, attrs...)
+				publishPollActivity(deps.Program, service, interval, attrs...)
 			}
 		}
 	})
@@ -113,6 +117,34 @@ func logPollActivity(ctx context.Context, logger *slog.Logger, service string, i
 	fields = append(fields, slog.String("service", service), slog.Duration("interval", interval))
 	fields = append(fields, attrs...)
 	logger.LogAttrs(ctx, slog.LevelInfo, "Polling service for new work", fields...)
+}
+
+func publishPollActivity(program *tea.Program, service string, interval time.Duration, attrs ...slog.Attr) {
+	if program == nil {
+		return
+	}
+
+	message := pollActivityDashboardMessage(service, interval, attrs...)
+	go func() {
+		program.Send(dashboard.AddLog(message)())
+	}()
+}
+
+func pollActivityDashboardMessage(service string, interval time.Duration, attrs ...slog.Attr) string {
+	target := ""
+	for _, attr := range attrs {
+		if attr.Key == "repo" || attr.Key == "project" {
+			target = attr.Value.String()
+			if target != "" {
+				break
+			}
+		}
+	}
+
+	if target == "" {
+		return fmt.Sprintf("◌ polling %s · every %s", service, interval)
+	}
+	return fmt.Sprintf("◌ polling %s · %s · every %s", service, target, interval)
 }
 
 // SafeAdapterGo is the single entry point every adapter poller goroutine
