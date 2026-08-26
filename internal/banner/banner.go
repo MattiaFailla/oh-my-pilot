@@ -8,7 +8,7 @@ import (
 	"github.com/qf-studio/pilot/internal/health"
 )
 
-// Logo is the ASCII art logo for Pilot
+// Logo is the ASCII art logo for oh-my-pilot.
 const Logo = `
    ██████╗ ██╗██╗      ██████╗ ████████╗
    ██╔══██╗██║██║     ██╔═══██╗╚══██╔══╝
@@ -36,7 +36,7 @@ func PrintWithVersion(version string) {
 
 // PrintCompact prints a compact single-line banner
 func PrintCompact() {
-	fmt.Println("Pilot - AI That Ships Your Tickets")
+	fmt.Println("oh-my-pilot - AI That Ships Your Tickets")
 }
 
 // StartupBanner prints the full startup banner
@@ -55,7 +55,7 @@ func StartupWithHealth(version string, cfg *config.Config) {
 
 	// Header
 	fmt.Println()
-	fmt.Printf("PILOT %s\n", version)
+	fmt.Printf("OH-MY-PILOT %s\n", version)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
@@ -189,11 +189,11 @@ func StartupTelegram(version, project, chatID string, cfg *config.Config) {
 	// Ready status
 	if !report.ReadyToStart() {
 		fmt.Println("✗ Cannot start - missing critical dependencies")
-		fmt.Println("   Run 'pilot doctor' for details")
+		fmt.Println("   Run 'oh-my-pilot doctor' for details")
 		fmt.Println()
 	} else if report.HasWarnings {
 		fmt.Println("! Starting with warnings - some features limited")
-		fmt.Println("   Run 'pilot doctor' for details")
+		fmt.Println("   Run 'oh-my-pilot doctor' for details")
 		fmt.Println()
 	}
 
@@ -257,7 +257,7 @@ func StartupServer(version, gateway string, cfg *config.Config) {
 
 	if !report.ReadyToStart() {
 		fmt.Println("✗ Cannot start - fix critical errors first")
-		fmt.Println("   Run 'pilot doctor' for details")
+		fmt.Println("   Run 'oh-my-pilot doctor' for details")
 	} else {
 		fmt.Println("Ready to receive tasks")
 	}

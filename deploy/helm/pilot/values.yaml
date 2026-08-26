@@ -1,12 +1,12 @@
-# Pilot Helm Chart — Default Values
+# oh-my-pilot Helm Chart — Default Values
 #
 # IMPORTANT: replicaCount MUST remain 1.
-# Pilot uses SQLite for storage. Multiple replicas would cause database
+# oh-my-pilot uses SQLite for storage. Multiple replicas would cause database
 # file lock conflicts. Scale vertically (resources), not horizontally.
 replicaCount: 1
 
 image:
-  repository: ghcr.io/qf-studio/pilot
+  repository: ghcr.io/qf-studio/oh-my-pilot
   # Defaults to Chart.appVersion when empty
   tag: ""
   pullPolicy: IfNotPresent
@@ -66,13 +66,17 @@ autopilot:
 # Leave empty strings here; never commit real tokens.
 secrets:
   # Required
-  anthropicApiKey: ""
   githubToken: ""
   # Optional adapters
   slackBotToken: ""
   slackAppToken: ""
   telegramBotToken: ""
   linearApiKey: ""
+
+omp:
+  # Name of a Secret containing the OMP profile directory. It is mounted
+  # read-only at PI_CODING_AGENT_DIR and owns all provider credentials.
+  profileSecret: ""
 
 persistence:
   enabled: true

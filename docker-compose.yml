@@ -1,20 +1,22 @@
 services:
-  pilot:
+  oh-my-pilot:
     build:
       context: .
       args:
         VERSION: ${VERSION:-dev}
         BUILD_TIME: ${BUILD_TIME:-}
-    image: pilot:${VERSION:-dev}
+    image: oh-my-pilot:${VERSION:-dev}
     ports:
       - "9090:9090"
     volumes:
       # Persistent SQLite data — required across restarts
-      - pilot-data:/home/pilot/.pilot/data
-      # Mount your config file (copy configs/pilot.example.yaml → config.yaml)
-      - ./config.yaml:/home/pilot/.pilot/config.yaml:ro
+      - oh-my-pilot-data:/home/pilot/.oh-my-pilot/data
+      # Mount your config file (copy configs/oh-my-pilot.example.yaml → config.yaml)
+      - ./config.yaml:/home/pilot/.oh-my-pilot/config.yaml:ro
+      # OMP owns provider credentials and profile configuration.
+      - ./omp-profile:/home/pilot/.omp:ro
     environment:
-      - ANTHROPIC_API_KEY
+      - PI_CODING_AGENT_DIR=/home/pilot/.omp
       - GITHUB_TOKEN
     command: ["start", "--github", "--autopilot=dev"]
     restart: unless-stopped
@@ -26,4 +28,4 @@ services:
       retries: 3
 
 volumes:
-  pilot-data:
+  oh-my-pilot-data:

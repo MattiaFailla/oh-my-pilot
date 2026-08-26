@@ -1,7 +1,7 @@
 .PHONY: build run test test-e2e clean install lint fmt deps dev install-hooks check-secrets check-mocks check-destructive check-graph gate check-integration test-prepush-fastpath auto-fix test-short test-integration test-chaos test-wiring package release docker-build docker-push desktop-dev desktop-build desktop-build-windows desktop-build-linux desktop desktop-deps desktop-package desktop-dmg desktop-clean build-with-dashboard watch-git-config
 
 # Variables
-BINARY_NAME=pilot
+BINARY_NAME=oh-my-pilot
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
@@ -29,7 +29,7 @@ bench-binary:
 	@ls -lh pilot-bench/bin/pilot-linux-amd64
 
 # Package binaries into tar.gz archives for release
-# Binary inside tar is named "pilot" (not pilot-darwin-arm64) to match upgrade code.
+# Binary inside tar is named "oh-my-pilot" to match upgrade code.
 # COPYFILE_DISABLE=1 prevents macOS tar from adding ._* resource fork entries.
 package: build-all
 	@echo "📦 Packaging binaries..."

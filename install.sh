@@ -1,11 +1,11 @@
 #!/bin/bash
-# Pilot installer script
-# Usage: curl -fsSL https://raw.githubusercontent.com/qf-studio/pilot/main/install.sh | bash
+# oh-my-pilot installer script
+# Usage: curl -fsSL https://raw.githubusercontent.com/qf-studio/oh-my-pilot/main/install.sh | bash
 
 set -e
 
-REPO="qf-studio/pilot"
-BINARY_NAME="pilot"
+REPO="qf-studio/oh-my-pilot"
+BINARY_NAME="oh-my-pilot"
 INSTALL_DIR="$HOME/.local/bin"
 
 # Colors

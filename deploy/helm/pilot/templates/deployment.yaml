@@ -6,7 +6,7 @@ metadata:
     {{- include "pilot.labels" . | nindent 4 }}
 spec:
   # DO NOT increase replicas above 1.
-  # Pilot uses SQLite for state storage; concurrent access from multiple pods
+  # oh-my-pilot uses SQLite for state storage; concurrent access from multiple pods
   # will cause file lock errors and data corruption.
   replicas: 1
   selector:
@@ -41,14 +41,11 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: {{ include "pilot.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/usr/local/bin/pilot"]
+          command: ["/usr/local/bin/oh-my-pilot"]
           args: {{ include "pilot.startArgs" . }}
           env:
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "pilot.fullname" . }}
-                  key: anthropic-api-key
+            - name: PI_CODING_AGENT_DIR
+              value: /home/pilot/.omp
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -99,12 +96,17 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /home/pilot/.pilot/config.yaml
+              mountPath: /home/pilot/.oh-my-pilot/config.yaml
               subPath: config.yaml
               readOnly: true
+            {{- if .Values.omp.profileSecret }}
+            - name: omp-profile
+              mountPath: /home/pilot/.omp
+              readOnly: true
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: data
-              mountPath: /home/pilot/.pilot/data
+              mountPath: /home/pilot/.oh-my-pilot/data
             {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
@@ -113,6 +115,11 @@ spec:
         - name: config
           configMap:
             name: {{ include "pilot.fullname" . }}
+        {{- if .Values.omp.profileSecret }}
+        - name: omp-profile
+          secret:
+            secretName: {{ .Values.omp.profileSecret }}
+        {{- end }}
         {{- if .Values.persistence.enabled }}
         - name: data
           persistentVolumeClaim:

@@ -327,9 +327,9 @@ func validateGitHubToken(ctx context.Context, client *github.Client, source gith
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "pilot",
+		Use:   "oh-my-pilot",
 		Short: "AI that ships your tickets",
-		Long:  `Pilot is an autonomous AI development pipeline that receives tickets, implements features, and creates PRs.`,
+		Long:  `oh-my-pilot is an autonomous OMP-powered development pipeline that receives tickets, implements features, and creates PRs.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// If no subcommand provided, enter interactive mode
 			if err := runInteractiveMode(); err != nil {
@@ -339,7 +339,7 @@ func main() {
 		},
 	}
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ~/.pilot/config.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ~/.oh-my-pilot/config.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&quietMode, "quiet", "q", false, "Suppress non-essential output")
 
 	rootCmd.AddCommand(
@@ -432,20 +432,20 @@ func newStartCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Start Pilot with config-driven inputs",
-		Long: `Start Pilot with inputs enabled based on config or flags.
+		Short: "Start oh-my-pilot with config-driven inputs",
+		Long: `Start oh-my-pilot with inputs enabled based on config or flags.
 
-By default, reads enabled adapters from ~/.pilot/config.yaml.
+By default, reads enabled adapters from ~/.oh-my-pilot/config.yaml.
 Use flags to override config values.
 
 Examples:
-  pilot start                          # Config-driven
-  pilot start --telegram               # Enable Telegram polling
-  pilot start --github                 # Enable GitHub polling
-  pilot start --slack                  # Enable Slack Socket Mode
-  pilot start --telegram --github      # Enable both
-  pilot start --dashboard              # With TUI dashboard
-  pilot start --no-gateway             # Polling only (no HTTP server)`,
+  oh-my-pilot start                          # Config-driven
+  oh-my-pilot start --telegram               # Enable Telegram polling
+  oh-my-pilot start --github                 # Enable GitHub polling
+  oh-my-pilot start --slack                  # Enable Slack Socket Mode
+  oh-my-pilot start --telegram --github      # Enable both
+  oh-my-pilot start --dashboard              # With TUI dashboard
+  oh-my-pilot start --no-gateway             # Polling only (no HTTP server)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
 			configPath := cfgFile
@@ -570,9 +570,6 @@ Examples:
 			if dashboardScope != "project" && dashboardScope != "all" {
 				return fmt.Errorf("invalid --dashboard-scope %q: must be one of [project, all]", dashboardScope)
 			}
-
-			// Clean stale pilot hooks on startup (GH-1883)
-			cleanStartupHooks(cfg, projectPath)
 
 			// Determine mode based on what's enabled
 			hasTelegram := cfg.Adapters.Telegram != nil && cfg.Adapters.Telegram.Enabled
@@ -942,12 +939,9 @@ Examples:
 							// GH-2685: wire the controller as the approval state writer so
 							// async approval decisions update the in-memory PRState.
 							approvalMgr.WithStateWriter(gwAutopilotController)
-							// GH-3992: wire the LLM release summary generator — nil (graceful
-							// no-op) when ANTHROPIC_API_KEY is unset, matching
-							// NewReleaseSummaryGenerator's documented degradation.
-							gwAutopilotController.SetReleaseSummaryGenerator(
-								autopilot.NewReleaseSummaryGenerator(apGHClient, os.Getenv("ANTHROPIC_API_KEY"), logging.WithComponent("autopilot")),
-							)
+							// Release summaries no longer call a model provider directly.
+							// OMP remains the sole agent runtime.
+							gwAutopilotController.SetReleaseSummaryGenerator(nil)
 							// GH-4412: wire the always-on Dispatcher liveness signal so the
 							// orphan-running sweep's live-worker exclusion set isn't silently
 							// empty outside --dashboard mode (see SetMonitor's dashboard-only
@@ -1941,7 +1935,7 @@ func daemonLockDir(cfg *config.Config) string {
 		return cfg.Memory.Path
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".pilot", "data")
+	return filepath.Join(home, ".oh-my-pilot", "data")
 }
 
 // resolveMemoryDBPath symlink-resolves configuredPath and returns the
@@ -2261,10 +2255,9 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 			// re-resolves its token per request instead of freezing ghToken.
 			apGHClient := newGitHubSDKClient(cfg)
 
-			// GH-3992: one shared LLM release summary generator for every
-			// controller constructed below (default + per-project) — nil
-			// (graceful no-op) when ANTHROPIC_API_KEY is unset.
-			releaseSummaryGen := autopilot.NewReleaseSummaryGenerator(apGHClient, os.Getenv("ANTHROPIC_API_KEY"), logging.WithComponent("autopilot"))
+			// Release summaries intentionally remain disabled: invoking a model
+			// provider directly would violate the OMP-only runtime boundary.
+			var releaseSummaryGen *autopilot.ReleaseSummaryGenerator
 
 			// GH-1870: Build shared (non-board) options for every autopilot
 			// controller. GH-4472: board sync is resolved per-repo below via
@@ -4148,33 +4141,6 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 	return nil
 }
 
-// cleanStartupHooks removes stale pilot hooks from .claude/settings.json
-// for the active project and all explicitly configured projects.
-func cleanStartupHooks(cfg *config.Config, projectPath string) {
-	seen := make(map[string]bool)
-
-	// Clean the resolved projectPath
-	if projectPath != "" {
-		seen[projectPath] = true
-		settingsPath := filepath.Join(projectPath, ".claude", "settings.json")
-		if err := executor.CleanStalePilotHooks(settingsPath); err != nil {
-			slog.Warn("failed to clean stale hooks", "path", projectPath, "error", err)
-		}
-	}
-
-	// Clean all explicitly configured projects
-	for _, p := range cfg.Projects {
-		if p.Path == "" || seen[p.Path] {
-			continue
-		}
-		seen[p.Path] = true
-		settingsPath := filepath.Join(p.Path, ".claude", "settings.json")
-		if err := executor.CleanStalePilotHooks(settingsPath); err != nil {
-			slog.Warn("failed to clean stale hooks", "path", p.Path, "error", err)
-		}
-	}
-}
-
 // storeTaskChecker adapts memory.Store to the github.TaskChecker interface.
 // GH-2201: Used by the poller to check if a task is still queued/in-progress
 // before allowing retry after the grace period expires.
@@ -4522,11 +4488,11 @@ func applyDashboardBannerMeta(model *dashboard.Model, cfg *config.Config, cmd *c
 	model.SetBannerAdapters(adapters)
 }
 
-// resolvedConfigPath returns the user-facing path to ~/.pilot/config.yaml
+// resolvedConfigPath returns the user-facing path to ~/.oh-my-pilot/config.yaml
 // (with $HOME contracted to ~) for display in the splash boot block.
 func resolvedConfigPath() string {
 	home, _ := os.UserHomeDir()
-	full := filepath.Join(home, ".pilot", "config.yaml")
+	full := filepath.Join(home, ".oh-my-pilot", "config.yaml")
 	if home != "" && strings.HasPrefix(full, home) {
 		return "~" + strings.TrimPrefix(full, home)
 	}

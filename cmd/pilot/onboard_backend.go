@@ -1,5 +1,5 @@
 // Package main provides the onboard backend selection stage.
-// GH-1340: Backend selection for pilot onboard command.
+// Backend selection for oh-my-pilot onboarding.
 package main
 
 import (
@@ -12,7 +12,7 @@ import (
 // BackendOption represents an available execution backend
 type BackendOption struct {
 	Name        string
-	Type        string // config value: "claude-code", "qwen-code", "opencode"
+	Type        string // config value: "omp"
 	Description string
 	CLICommand  string // command to check with exec.LookPath
 	Installed   bool
@@ -20,26 +20,12 @@ type BackendOption struct {
 
 // detectBackends checks which backend CLIs are installed
 func detectBackends() []BackendOption {
-	backends := []BackendOption{
-		{
-			Name:        "Claude Code",
-			Type:        "claude-code",
-			Description: "Anthropic's CLI",
-			CLICommand:  "claude",
-		},
-		{
-			Name:        "Qwen Code",
-			Type:        "qwen-code",
-			Description: "Alibaba's open-source CLI",
-			CLICommand:  "qwen",
-		},
-		{
-			Name:        "OpenCode",
-			Type:        "opencode",
-			Description: "Server/client architecture",
-			CLICommand:  "opencode",
-		},
-	}
+	backends := []BackendOption{{
+		Name:        "Oh My Pi",
+		Type:        executor.BackendTypeOMP,
+		Description: "OMP RPC runtime",
+		CLICommand:  "omp",
+	}}
 
 	// Check which CLIs are installed
 	for i := range backends {
@@ -91,7 +77,7 @@ func onboardBackendSetup(state *OnboardState) error {
 	}
 
 	// Show menu
-	fmt.Println("  Which AI coding backend should Pilot use?")
+	fmt.Println("  Oh My Pi is the required AI coding runtime.")
 	fmt.Println()
 
 	for i, b := range backends {
@@ -136,24 +122,10 @@ func onboardBackendSetup(state *OnboardState) error {
 	}
 	state.Config.Executor.Type = selected.Type
 
-	// If OpenCode is selected, prompt for server URL
-	if selected.Type == "opencode" {
-		fmt.Println()
-		fmt.Print("  OpenCode server URL [http://localhost:8080]: ")
-		serverURL := readLine(state.Reader)
-		if serverURL == "" {
-			serverURL = "http://localhost:8080"
-		}
-		if state.Config.Executor.OpenCode == nil {
-			state.Config.Executor.OpenCode = &executor.OpenCodeConfig{}
-		}
-		state.Config.Executor.OpenCode.ServerURL = serverURL
-	}
-
 	// Show confirmation
 	fmt.Println()
 	if !selected.Installed {
-		fmt.Printf("  %s %s is not installed. Install it before running Pilot.\n",
+		fmt.Printf("  %s %s is not installed. Install it before running oh-my-pilot.\n",
 			onboardDimStyle.Render("!"),
 			selected.Name)
 	}

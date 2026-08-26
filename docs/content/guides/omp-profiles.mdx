@@ -1,0 +1,37 @@
+# OMP Profiles
+
+oh-my-pilot does not configure model providers itself. Configure providers, credentials, and default models in your OMP profile, then make that profile available through `PI_CODING_AGENT_DIR`.
+
+## Local Development
+
+```bash
+omp --version
+export PI_CODING_AGENT_DIR="$HOME/.omp"
+oh-my-pilot doctor
+```
+
+Optionally make the location explicit in oh-my-pilot configuration:
+
+```yaml
+executor:
+  type: omp
+  omp:
+    profile_dir: /home/you/.omp
+```
+
+## Containers
+
+Mount the profile read-only. The included Compose file uses:
+
+```yaml
+./omp-profile:/home/pilot/.omp:ro
+```
+
+For Kubernetes, create a Secret containing the profile files and set the Helm value:
+
+```bash
+helm upgrade --install oh-my-pilot ./deploy/helm/pilot \
+  --set omp.profileSecret=oh-my-pilot-omp-profile
+```
+
+Keep provider keys out of `config.yaml`, Helm values, and oh-my-pilot environment variables. Rotate them through the OMP profile management workflow.

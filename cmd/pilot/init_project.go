@@ -10,7 +10,7 @@ import (
 	"github.com/qf-studio/pilot/internal/config"
 )
 
-// ProjectTemplate represents the language/framework template for CLAUDE.md generation.
+// ProjectTemplate represents the language/framework template for AGENTS.md generation.
 type ProjectTemplate int
 
 const (
@@ -49,7 +49,7 @@ type initProjectData struct {
 }
 
 // runInitProject runs the interactive project scaffolding wizard.
-// It generates CLAUDE.md in the current directory, updates ~/.pilot/config.yaml,
+// It generates AGENTS.md in the current directory, updates ~/.oh-my-pilot/config.yaml,
 // and optionally creates a .agent/ Navigator structure.
 func runInitProject(projectPath string) error {
 	reader := bufio.NewReader(os.Stdin)
@@ -132,13 +132,13 @@ func runInitProject(projectPath string) error {
 	printStageFooter()
 	fmt.Println()
 
-	// Generate CLAUDE.md
-	claudePath := filepath.Join(projectPath, "CLAUDE.md")
-	claudeContent := buildClaudeMD(data)
-	if err := os.WriteFile(claudePath, []byte(claudeContent), 0o644); err != nil {
-		return fmt.Errorf("failed to write CLAUDE.md: %w", err)
+	// Generate AGENTS.md
+	agentsPath := filepath.Join(projectPath, "AGENTS.md")
+	agentsContent := buildClaudeMD(data)
+	if err := os.WriteFile(agentsPath, []byte(agentsContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write AGENTS.md: %w", err)
 	}
-	fmt.Printf("  %s CLAUDE.md created\n", onboardSuccessStyle.Render("✓"))
+	fmt.Printf("  %s AGENTS.md created\n", onboardSuccessStyle.Render("✓"))
 
 	// Create .agent/ structure if requested
 	if data.CreateNavigator {
@@ -149,17 +149,17 @@ func runInitProject(projectPath string) error {
 		}
 	}
 
-	// Update ~/.pilot/config.yaml
+	// Update ~/.oh-my-pilot/config.yaml
 	if err := addProjectToConfig(data); err != nil {
 		fmt.Printf("  %s Warning: failed to update Pilot config: %v\n", onboardFailStyle.Render("!"), err)
 	} else {
-		fmt.Printf("  %s Project added to ~/.pilot/config.yaml\n", onboardSuccessStyle.Render("✓"))
+		fmt.Printf("  %s Project added to ~/.oh-my-pilot/config.yaml\n", onboardSuccessStyle.Render("✓"))
 	}
 
 	fmt.Println()
 	fmt.Println("  Next steps:")
-	fmt.Println("  1. Review and customize CLAUDE.md")
-	fmt.Println("  2. Run " + onboardValueStyle.Render("pilot start") + " to begin processing tasks")
+	fmt.Println("  1. Review and customize AGENTS.md")
+	fmt.Println("  2. Run " + onboardValueStyle.Render("oh-my-pilot start") + " to begin processing tasks")
 
 	return nil
 }
@@ -234,7 +234,7 @@ func defaultBuildCmd(t ProjectTemplate) string {
 	}
 }
 
-// buildClaudeMD generates the CLAUDE.md content from the collected wizard data.
+// buildClaudeMD is retained as a test seam and generates AGENTS.md content.
 func buildClaudeMD(data *initProjectData) string {
 	var sb strings.Builder
 
@@ -337,7 +337,7 @@ func createNavigatorStructure(projectPath string, data *initProjectData) error {
 	return os.WriteFile(readmePath, []byte(readmeContent), 0o644)
 }
 
-// addProjectToConfig adds the project to ~/.pilot/config.yaml.
+// addProjectToConfig adds the project to ~/.oh-my-pilot/config.yaml.
 // Creates the config file with defaults if it does not exist.
 func addProjectToConfig(data *initProjectData) error {
 	configPath := config.DefaultConfigPath()

@@ -278,14 +278,14 @@ Run Pilot in a container instead of installing the binary directly:
 docker pull ghcr.io/qf-studio/pilot:latest
 
 # Start with Docker Compose (recommended)
-cp configs/pilot.example.yaml config.yaml
+cp configs/oh-my-pilot.example.yaml config.yaml
 # Edit config.yaml with your repo and settings
 
 export GITHUB_TOKEN="ghp_..."
-export ANTHROPIC_API_KEY="sk-ant-..."
+mkdir -p omp-profile # Populate through your OMP profile-management workflow
 
 docker compose up -d
-docker compose logs -f pilot
+docker compose logs -f oh-my-pilot
 ```
 
 For Helm on Kubernetes:

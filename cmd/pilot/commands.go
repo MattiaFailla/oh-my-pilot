@@ -73,7 +73,7 @@ func stopDaemonLockDir(cfg *config.Config) string {
 		return cfg.Memory.Path
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".pilot", "data")
+	return filepath.Join(home, ".oh-my-pilot", "data")
 }
 
 // stopDaemon reads the pid recorded in the GH-4311 single-instance lock
@@ -286,14 +286,14 @@ func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize Pilot configuration or scaffold a project",
-		Long: `Initialize Pilot configuration or scaffold a project with CLAUDE.md.
+		Long: `Initialize oh-my-pilot configuration or scaffold a project with AGENTS.md.
 
 Without flags: initialize ~/.pilot/config.yaml (global Pilot config).
 With --project: run the interactive project scaffolding wizard in the current directory.
 
 The --project wizard:
   - Detects the project language (Go, TypeScript, Python)
-  - Generates CLAUDE.md with coding conventions and quality gates
+  - Generates AGENTS.md with coding conventions and quality gates
   - Adds the project to ~/.pilot/config.yaml
   - Optionally creates a .agent/ Navigator structure
 
@@ -352,7 +352,7 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Reinitialize config (backs up existing to .bak)")
-	cmd.Flags().BoolVar(&projectMode, "project", false, "Scaffold a project in the current directory (generates CLAUDE.md)")
+	cmd.Flags().BoolVar(&projectMode, "project", false, "Scaffold a project in the current directory (generates AGENTS.md)")
 
 	return cmd
 }

@@ -1,19 +1,19 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
-# GoReleaser configuration for Pilot
+# GoReleaser configuration for oh-my-pilot
 # https://goreleaser.com
 
 version: 2
 
-project_name: pilot
+project_name: oh-my-pilot
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: pilot
+  - id: oh-my-pilot
     main: ./cmd/pilot
-    binary: pilot
+    binary: oh-my-pilot
     env:
       - CGO_ENABLED=0
     goos:
@@ -83,7 +83,7 @@ changelog:
 release:
   github:
     owner: qf-studio
-    name: pilot
+    name: oh-my-pilot
   draft: false
   prerelease: auto
   mode: append
@@ -95,13 +95,13 @@ brews:
       name: homebrew-pilot
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://pilot.quantflow.studio"
+    homepage: "https://github.com/qf-studio/oh-my-pilot"
     description: "AI that ships your tickets — autonomous development pipeline"
     license: "MIT"
     install: |
-      bin.install "pilot"
+      bin.install "oh-my-pilot"
     test: |
-      system "#{bin}/pilot", "version"
+      system "#{bin}/oh-my-pilot", "version"
     commit_author:
-      name: "Pilot Bot"
-      email: "pilot@quantflow.studio"
+      name: "oh-my-pilot Bot"
+      email: "oh-my-pilot@quantflow.studio"

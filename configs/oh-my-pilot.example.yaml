@@ -1,0 +1,55 @@
+# oh-my-pilot configuration
+# Copy to ~/.oh-my-pilot/config.yaml and mount an OMP profile separately.
+
+version: "1.0"
+
+gateway:
+  host: "127.0.0.1"
+  port: 9090
+
+auth:
+  # Local-only gateway access. Use api-token with a token when exposing it.
+  type: "local"
+
+executor:
+  # OMP is the only supported agent backend. Authentication, provider routing,
+  # and model profiles live in PI_CODING_AGENT_DIR, never this file.
+  type: "omp"
+  omp:
+    command: "omp"
+    version: "18.0.5"
+    profile_dir: "/home/pilot/.omp"
+    # thinking: "high"
+    # extra_args: []
+
+  model_routing:
+    enabled: true
+  effort_routing:
+    enabled: true
+
+  use_worktree: true
+  auto_create_pr: true
+  heartbeat_timeout: 5m
+  planning_timeout: 10m
+
+adapters:
+  github:
+    enabled: false
+    token: "${GITHUB_TOKEN}"
+  telegram:
+    enabled: false
+  slack:
+    enabled: false
+
+orchestrator:
+  max_concurrent: 2
+  execution:
+    mode: "auto"
+
+memory:
+  path: "~/.oh-my-pilot/data"
+
+# OMP profile mounting examples:
+#   Docker Compose: ./omp-profile:/home/pilot/.omp:ro
+#   Kubernetes: set Helm value omp.profileSecret to a Secret containing the
+#   profile files. Do not put provider keys in this config file.

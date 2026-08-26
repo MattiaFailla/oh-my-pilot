@@ -38,7 +38,7 @@ func TestStopDaemonLockDir(t *testing.T) {
 		}
 	})
 
-	t.Run("falls back to ~/.pilot/data when Memory is nil", func(t *testing.T) {
+	t.Run("falls back to ~/.oh-my-pilot/data when Memory is nil", func(t *testing.T) {
 		// Pin HOME rather than reading the ambient os.UserHomeDir(): other
 		// tests in this package (e.g. TestAddProjectToConfig_NoDuplicate)
 		// mutate the process-wide HOME env var without fully restoring it,
@@ -46,7 +46,7 @@ func TestStopDaemonLockDir(t *testing.T) {
 		cfg := &config.Config{}
 		home := t.TempDir()
 		t.Setenv("HOME", home)
-		want := filepath.Join(home, ".pilot", "data")
+		want := filepath.Join(home, ".oh-my-pilot", "data")
 		if got := stopDaemonLockDir(cfg); got != want {
 			t.Errorf("stopDaemonLockDir() = %q, want %q", got, want)
 		}

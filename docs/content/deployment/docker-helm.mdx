@@ -5,7 +5,7 @@ import { Callout, Tabs, Steps } from 'nextra/components'
 Production-ready deployment using Docker Compose or Helm on Kubernetes. Covers the official image, configuration, persistence, monitoring, ingress, and security hardening.
 
 <Callout type="info">
-The official image is available at `ghcr.io/qf-studio/pilot`. It bundles the Pilot binary, Claude Code CLI, Git, and the GitHub CLI (`gh`) in a single Ubuntu-based image running as a non-root user.
+The official image is available at `ghcr.io/qf-studio/oh-my-pilot`. It bundles the oh-my-pilot binary, pinned OMP runtime, Git, and the GitHub CLI (`gh`) in a single Ubuntu-based image running as a non-root user.
 </Callout>
 
 ---
@@ -19,7 +19,7 @@ The fastest way to run Pilot in a container:
 ### Copy the example config
 
 ```bash
-cp configs/pilot.example.yaml config.yaml
+cp configs/oh-my-pilot.example.yaml config.yaml
 # Edit config.yaml — set your repo, project_path, and adapter settings
 ```
 
@@ -27,14 +27,14 @@ cp configs/pilot.example.yaml config.yaml
 
 ```bash
 export GITHUB_TOKEN="your-github-pat"
-export ANTHROPIC_API_KEY="your-anthropic-key"
+mkdir -p omp-profile # Populate through your OMP profile-management workflow
 ```
 
 ### Start with Docker Compose
 
 ```bash
 docker compose up -d
-docker compose logs -f pilot
+docker compose logs -f oh-my-pilot
 ```
 
 </Steps>

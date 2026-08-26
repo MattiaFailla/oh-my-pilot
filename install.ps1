@@ -1,11 +1,11 @@
-# Pilot installer for Windows
-# Usage: irm https://raw.githubusercontent.com/qf-studio/pilot/main/install.ps1 | iex
+# oh-my-pilot installer for Windows
+# Usage: irm https://raw.githubusercontent.com/qf-studio/oh-my-pilot/main/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
-$REPO = "qf-studio/pilot"
-$BINARY_NAME = "pilot.exe"
-$INSTALL_DIR = "$env:LOCALAPPDATA\pilot\bin"
+$REPO = "qf-studio/oh-my-pilot"
+$BINARY_NAME = "oh-my-pilot.exe"
+$INSTALL_DIR = "$env:LOCALAPPDATA\oh-my-pilot\bin"
 
 function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -15,7 +15,7 @@ function Write-Err($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red; exit 
 $ARCH = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { Write-Err "32-bit Windows is not supported" }
 
 Write-Host ""
-Write-Host "  Pilot Installer (Windows)" -ForegroundColor Cyan
+Write-Host "  oh-my-pilot Installer (Windows)" -ForegroundColor Cyan
 Write-Host "  =========================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -30,7 +30,7 @@ try {
 Write-Info "Latest version: $VERSION"
 
 # Download
-$ARCHIVE_NAME = "pilot-windows-$ARCH.zip"
+$ARCHIVE_NAME = "oh-my-pilot-windows-$ARCH.zip"
 $DOWNLOAD_URL = "https://github.com/$REPO/releases/download/$VERSION/$ARCHIVE_NAME"
 $TMP_DIR = Join-Path $env:TEMP "pilot-install-$(Get-Random)"
 $TMP_ARCHIVE = Join-Path $TMP_DIR $ARCHIVE_NAME
@@ -57,8 +57,8 @@ try {
 # Find binary
 $EXTRACTED = Join-Path $TMP_DIR $BINARY_NAME
 if (-not (Test-Path $EXTRACTED)) {
-    # Try without .exe (GoReleaser may name it "pilot")
-    $EXTRACTED_ALT = Join-Path $TMP_DIR "pilot"
+    # Try without .exe (GoReleaser may omit the extension)
+    $EXTRACTED_ALT = Join-Path $TMP_DIR "oh-my-pilot"
     if (Test-Path $EXTRACTED_ALT) {
         Rename-Item $EXTRACTED_ALT $EXTRACTED
     } else {

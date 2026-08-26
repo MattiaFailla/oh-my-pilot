@@ -1,18 +1,18 @@
 apiVersion: v2
-name: pilot
-description: Autonomous AI development pipeline — receives tickets, plans and executes implementation using Claude Code, creates PRs and notifies via Slack.
+name: oh-my-pilot
+description: Autonomous OMP development pipeline — receives tickets, plans and executes implementation, creates PRs and notifies via Slack.
 type: application
 version: 0.1.0
 appVersion: "1.40.1"
 keywords:
   - ai
   - automation
-  - claude
+  - omp
   - github
   - ci
-home: https://pilot.quantflow.studio
+home: https://github.com/qf-studio/oh-my-pilot
 sources:
-  - https://github.com/qf-studio/pilot
+  - https://github.com/qf-studio/oh-my-pilot
 maintainers:
   - name: qf-studio
     url: https://github.com/qf-studio

@@ -21,33 +21,9 @@ type backendInfo struct {
 
 var supportedBackends = []backendInfo{
 	{
-		Name:      executor.BackendTypeClaudeCode,
-		Command:   "claude",
-		ConfigKey: "claude_code",
-		getVersion: func(cmd string) string {
-			out, err := exec.Command(cmd, "--version").Output()
-			if err != nil {
-				return ""
-			}
-			return strings.TrimSpace(string(out))
-		},
-	},
-	{
-		Name:      executor.BackendTypeQwenCode,
-		Command:   "qwen",
-		ConfigKey: "qwen_code",
-		getVersion: func(cmd string) string {
-			out, err := exec.Command(cmd, "--version").Output()
-			if err != nil {
-				return ""
-			}
-			return strings.TrimSpace(string(out))
-		},
-	},
-	{
-		Name:      executor.BackendTypeOpenCode,
-		Command:   "opencode",
-		ConfigKey: "opencode",
+		Name:      executor.BackendTypeOMP,
+		Command:   "omp",
+		ConfigKey: "omp",
 		getVersion: func(cmd string) string {
 			out, err := exec.Command(cmd, "--version").Output()
 			if err != nil {
@@ -62,7 +38,7 @@ func newBackendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backend",
 		Short: "Manage execution backends",
-		Long: `Manage AI execution backends (Claude Code, Qwen Code, OpenCode).
+		Long: `Manage the Oh My Pi execution runtime.
 
 List supported backends, check their status, and switch the active backend.`,
 	}
@@ -84,9 +60,7 @@ func newBackendListCmd() *cobra.Command {
 
 Example output:
   Backend        Status      Command    Config
-  claude-code    ✓ installed claude     (default)
-  qwen-code      ✗ missing   qwen
-  opencode       ✓ installed opencode  `,
+  omp            ✓ installed omp        (default)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config to check which is default
 			configPath := cfgFile
@@ -100,7 +74,7 @@ Example output:
 				cfg = config.DefaultConfig()
 			}
 
-			activeBackend := executor.BackendTypeClaudeCode
+			activeBackend := executor.BackendTypeOMP
 			if cfg.Executor != nil && cfg.Executor.Type != "" {
 				activeBackend = cfg.Executor.Type
 			}
@@ -112,23 +86,8 @@ Example output:
 				// Get the actual command from config or use default
 				command := backend.Command
 				if cfg.Executor != nil {
-					switch backend.Name {
-					case executor.BackendTypeClaudeCode:
-						if cfg.Executor.ClaudeCode != nil && cfg.Executor.ClaudeCode.Command != "" {
-							command = cfg.Executor.ClaudeCode.Command
-						}
-					case executor.BackendTypeQwenCode:
-						if cfg.Executor.QwenCode != nil && cfg.Executor.QwenCode.Command != "" {
-							command = cfg.Executor.QwenCode.Command
-						}
-					case executor.BackendTypeOpenCode:
-						// OpenCode uses server command
-						if cfg.Executor.OpenCode != nil && cfg.Executor.OpenCode.ServerCommand != "" {
-							parts := strings.Fields(cfg.Executor.OpenCode.ServerCommand)
-							if len(parts) > 0 {
-								command = parts[0]
-							}
-						}
+					if cfg.Executor.OMP != nil && cfg.Executor.OMP.Command != "" {
+						command = cfg.Executor.OMP.Command
 					}
 				}
 
@@ -161,9 +120,9 @@ func newBackendStatusCmd() *cobra.Command {
 		Long: `Show current backend configuration and health.
 
 Example output:
-  Active backend: claude-code
-  Command: claude
-  Version: 1.0.26
+  Active backend: omp
+  Command: omp
+  Version: 18.0.5
   Status: ✓ ready`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath := cfgFile
@@ -176,7 +135,7 @@ Example output:
 				cfg = config.DefaultConfig()
 			}
 
-			activeBackend := executor.BackendTypeClaudeCode
+			activeBackend := executor.BackendTypeOMP
 			if cfg.Executor != nil && cfg.Executor.Type != "" {
 				activeBackend = cfg.Executor.Type
 			}
@@ -197,22 +156,8 @@ Example output:
 			// Get the actual command from config
 			command := info.Command
 			if cfg.Executor != nil {
-				switch activeBackend {
-				case executor.BackendTypeClaudeCode:
-					if cfg.Executor.ClaudeCode != nil && cfg.Executor.ClaudeCode.Command != "" {
-						command = cfg.Executor.ClaudeCode.Command
-					}
-				case executor.BackendTypeQwenCode:
-					if cfg.Executor.QwenCode != nil && cfg.Executor.QwenCode.Command != "" {
-						command = cfg.Executor.QwenCode.Command
-					}
-				case executor.BackendTypeOpenCode:
-					if cfg.Executor.OpenCode != nil && cfg.Executor.OpenCode.ServerCommand != "" {
-						parts := strings.Fields(cfg.Executor.OpenCode.ServerCommand)
-						if len(parts) > 0 {
-							command = parts[0]
-						}
-					}
+				if cfg.Executor.OMP != nil && cfg.Executor.OMP.Command != "" {
+					command = cfg.Executor.OMP.Command
 				}
 			}
 
@@ -243,19 +188,9 @@ Example output:
 			// Show backend-specific config
 			if cfg.Executor != nil {
 				switch activeBackend {
-				case executor.BackendTypeClaudeCode:
-					if cfg.Executor.ClaudeCode != nil {
-						fmt.Printf("  executor.claude_code.command: %s\n", command)
-					}
-				case executor.BackendTypeQwenCode:
-					if cfg.Executor.QwenCode != nil {
-						fmt.Printf("  executor.qwen_code.command: %s\n", command)
-					}
-				case executor.BackendTypeOpenCode:
-					if cfg.Executor.OpenCode != nil {
-						if cfg.Executor.OpenCode.ServerURL != "" {
-							fmt.Printf("  executor.opencode.server_url: %s\n", cfg.Executor.OpenCode.ServerURL)
-						}
+				case executor.BackendTypeOMP:
+					if cfg.Executor.OMP != nil {
+						fmt.Printf("  executor.omp.command: %s\n", command)
 					}
 				}
 			}
@@ -269,24 +204,20 @@ func newBackendSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <type>",
 		Short: "Set active backend",
-		Long: `Switch the active backend in the config file.
+		Long: `OMP is the only supported execution runtime.
 
-Valid types: claude-code, qwen-code, opencode
+Valid type: omp
 
 Example:
-  pilot backend set qwen-code
-  → Updated executor.type to "qwen-code" in ~/.pilot/config.yaml
-  → Verified: qwen CLI found at /usr/local/bin/qwen`,
+  pilot backend set omp
+  → Updated executor.type to "omp" in ~/.pilot/config.yaml
+  → Verified: omp CLI found in PATH`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			backendType := args[0]
 
 			// Validate backend type
-			validTypes := []string{
-				executor.BackendTypeClaudeCode,
-				executor.BackendTypeQwenCode,
-				executor.BackendTypeOpenCode,
-			}
+			validTypes := []string{executor.BackendTypeOMP}
 			isValid := false
 			for _, t := range validTypes {
 				if backendType == t {
@@ -335,22 +266,8 @@ Example:
 			if info != nil {
 				command := info.Command
 				// Get custom command from config if set
-				switch backendType {
-				case executor.BackendTypeClaudeCode:
-					if cfg.Executor.ClaudeCode != nil && cfg.Executor.ClaudeCode.Command != "" {
-						command = cfg.Executor.ClaudeCode.Command
-					}
-				case executor.BackendTypeQwenCode:
-					if cfg.Executor.QwenCode != nil && cfg.Executor.QwenCode.Command != "" {
-						command = cfg.Executor.QwenCode.Command
-					}
-				case executor.BackendTypeOpenCode:
-					if cfg.Executor.OpenCode != nil && cfg.Executor.OpenCode.ServerCommand != "" {
-						parts := strings.Fields(cfg.Executor.OpenCode.ServerCommand)
-						if len(parts) > 0 {
-							command = parts[0]
-						}
-					}
+				if cfg.Executor.OMP != nil && cfg.Executor.OMP.Command != "" {
+					command = cfg.Executor.OMP.Command
 				}
 
 				path, err := exec.LookPath(command)

@@ -21,7 +21,7 @@ import (
 
 const (
 	// GitHubRepo is the GitHub repository for releases
-	GitHubRepo = "qf-studio/pilot"
+	GitHubRepo = "qf-studio/oh-my-pilot"
 
 	// DefaultTimeout for HTTP requests
 	DefaultTimeout = 30 * time.Second
@@ -90,10 +90,10 @@ func NewUpgrader(currentVersion string) (*Upgrader, error) {
 		return nil, fmt.Errorf("homebrew installation detected at %s\n\n"+
 			"Self-upgrade is not supported for Homebrew installations.\n"+
 			"Please use Homebrew to upgrade:\n\n"+
-			"  brew upgrade pilot\n\n"+
+			"  brew upgrade oh-my-pilot\n\n"+
 			"Or reinstall without Homebrew:\n\n"+
-			"  brew uninstall pilot\n"+
-			"  curl -fsSL https://raw.githubusercontent.com/qf-studio/pilot/main/install.sh | bash",
+			"  brew uninstall oh-my-pilot\n"+
+			"  curl -fsSL https://raw.githubusercontent.com/qf-studio/oh-my-pilot/main/install.sh | bash",
 			resolvedPath)
 	}
 
@@ -366,9 +366,9 @@ func firstStableRelease(releases []Release) *Release {
 
 // findAsset finds the appropriate release asset for the current platform
 func (u *Upgrader) findAsset(release *Release) *Asset {
-	// Expected asset name format: pilot-{os}-{arch}.tar.gz (or .zip for Windows)
-	expectedTarGz := fmt.Sprintf("pilot-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH)
-	expectedZip := fmt.Sprintf("pilot-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
+	// Expected asset name format: oh-my-pilot-{os}-{arch}.tar.gz (or .zip for Windows)
+	expectedTarGz := fmt.Sprintf("oh-my-pilot-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	expectedZip := fmt.Sprintf("oh-my-pilot-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
 
 	// Try .tar.gz first (preferred for Unix platforms)
 	for i := range release.Assets {
@@ -385,10 +385,26 @@ func (u *Upgrader) findAsset(release *Release) *Asset {
 	}
 
 	// Try without extension
-	expectedBinary := fmt.Sprintf("pilot-%s-%s", runtime.GOOS, runtime.GOARCH)
+	expectedBinary := fmt.Sprintf("oh-my-pilot-%s-%s", runtime.GOOS, runtime.GOARCH)
 	for i := range release.Assets {
 		if release.Assets[i].Name == expectedBinary {
 			return &release.Assets[i]
+		}
+	}
+
+	// Releases prior to the fork rename used the pilot prefix. Retain this
+	// fallback only for upgrades from an already-installed legacy binary; new
+	// releases are published exclusively as oh-my-pilot assets.
+	legacyNames := []string{
+		fmt.Sprintf("pilot-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH),
+		fmt.Sprintf("pilot-%s-%s.zip", runtime.GOOS, runtime.GOARCH),
+		fmt.Sprintf("pilot-%s-%s", runtime.GOOS, runtime.GOARCH),
+	}
+	for i := range release.Assets {
+		for _, legacyName := range legacyNames {
+			if release.Assets[i].Name == legacyName {
+				return &release.Assets[i]
+			}
 		}
 	}
 

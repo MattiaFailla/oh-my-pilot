@@ -160,10 +160,10 @@ func TestVersionInfo_UpdateAvailable(t *testing.T) {
 func TestUpgrader_findAsset(t *testing.T) {
 	release := &Release{
 		Assets: []Asset{
-			{Name: "pilot-darwin-arm64.tar.gz", BrowserDownloadURL: "https://example.com/darwin-arm64.tar.gz"},
-			{Name: "pilot-darwin-amd64.tar.gz", BrowserDownloadURL: "https://example.com/darwin-amd64.tar.gz"},
-			{Name: "pilot-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/linux-amd64.tar.gz"},
-			{Name: "pilot-linux-arm64.tar.gz", BrowserDownloadURL: "https://example.com/linux-arm64.tar.gz"},
+			{Name: "oh-my-pilot-darwin-arm64.tar.gz", BrowserDownloadURL: "https://example.com/darwin-arm64.tar.gz"},
+			{Name: "oh-my-pilot-darwin-amd64.tar.gz", BrowserDownloadURL: "https://example.com/darwin-amd64.tar.gz"},
+			{Name: "oh-my-pilot-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/linux-amd64.tar.gz"},
+			{Name: "oh-my-pilot-linux-arm64.tar.gz", BrowserDownloadURL: "https://example.com/linux-arm64.tar.gz"},
 		},
 	}
 
@@ -180,9 +180,9 @@ func TestUpgrader_findAsset_zip(t *testing.T) {
 	// Simulate a release with both tar.gz and zip assets (like GoReleaser produces)
 	release := &Release{
 		Assets: []Asset{
-			{Name: "pilot-darwin-arm64.tar.gz", BrowserDownloadURL: "https://example.com/darwin-arm64.tar.gz"},
-			{Name: "pilot-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/linux-amd64.tar.gz"},
-			{Name: "pilot-windows-amd64.zip", BrowserDownloadURL: "https://example.com/windows-amd64.zip"},
+			{Name: "oh-my-pilot-darwin-arm64.tar.gz", BrowserDownloadURL: "https://example.com/darwin-arm64.tar.gz"},
+			{Name: "oh-my-pilot-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/linux-amd64.tar.gz"},
+			{Name: "oh-my-pilot-windows-amd64.zip", BrowserDownloadURL: "https://example.com/windows-amd64.zip"},
 		},
 	}
 
@@ -198,8 +198,8 @@ func TestUpgrader_findAsset_zip(t *testing.T) {
 	t.Run("tar.gz preferred over zip", func(t *testing.T) {
 		r := &Release{
 			Assets: []Asset{
-				{Name: "pilot-darwin-arm64.tar.gz", BrowserDownloadURL: "tar"},
-				{Name: "pilot-darwin-arm64.zip", BrowserDownloadURL: "zip"},
+				{Name: "oh-my-pilot-darwin-arm64.tar.gz", BrowserDownloadURL: "tar"},
+				{Name: "oh-my-pilot-darwin-arm64.zip", BrowserDownloadURL: "zip"},
 			},
 		}
 		a := upgrader.findAsset(r)
@@ -211,7 +211,7 @@ func TestUpgrader_findAsset_zip(t *testing.T) {
 	t.Run("zip found when no tar.gz", func(t *testing.T) {
 		r := &Release{
 			Assets: []Asset{
-				{Name: "pilot-windows-amd64.zip", BrowserDownloadURL: "https://example.com/win.zip"},
+				{Name: "oh-my-pilot-windows-amd64.zip", BrowserDownloadURL: "https://example.com/win.zip"},
 				{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums.txt"},
 			},
 		}

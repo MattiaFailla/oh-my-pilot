@@ -710,11 +710,11 @@ func TestIsHomebrewPath(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFindAsset_MatchesCurrentPlatform(t *testing.T) {
-	tarName := fmt.Sprintf("pilot-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	tarName := fmt.Sprintf("oh-my-pilot-%s-%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	release := &Release{
 		Assets: []Asset{
 			{Name: tarName, BrowserDownloadURL: "https://example.com/tar"},
-			{Name: "pilot-other-other.tar.gz", BrowserDownloadURL: "https://example.com/other"},
+			{Name: "oh-my-pilot-other-other.tar.gz", BrowserDownloadURL: "https://example.com/other"},
 		},
 	}
 
@@ -729,7 +729,7 @@ func TestFindAsset_MatchesCurrentPlatform(t *testing.T) {
 }
 
 func TestFindAsset_FallbackToBinary(t *testing.T) {
-	binaryName := fmt.Sprintf("pilot-%s-%s", runtime.GOOS, runtime.GOARCH)
+	binaryName := fmt.Sprintf("oh-my-pilot-%s-%s", runtime.GOOS, runtime.GOARCH)
 	release := &Release{
 		Assets: []Asset{
 			{Name: binaryName, BrowserDownloadURL: "https://example.com/binary"},
@@ -749,7 +749,7 @@ func TestFindAsset_FallbackToBinary(t *testing.T) {
 func TestFindAsset_NoMatch(t *testing.T) {
 	release := &Release{
 		Assets: []Asset{
-			{Name: "pilot-fakeos-fakearch.tar.gz"},
+			{Name: "oh-my-pilot-fakeos-fakearch.tar.gz"},
 		},
 	}
 

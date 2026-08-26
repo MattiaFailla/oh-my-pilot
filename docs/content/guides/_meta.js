@@ -1,6 +1,6 @@
 export default {
   "tunnel-setup": "Tunnel Setup",
   "multi-repo": "Multi-Repo Polling",
-  "custom-providers": "Custom Model Providers",
+  "omp-profiles": "OMP Profiles",
   troubleshooting: "Troubleshooting"
 }
