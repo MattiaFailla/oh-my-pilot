@@ -20,8 +20,8 @@ func newDoctorCmd() *cobra.Command {
 Shows what's working, what's missing, and how to fix issues.
 
 Examples:
-  pilot doctor           # Run all checks
-  pilot doctor --verbose # Show detailed output`,
+  oh-my-pilot doctor           # Run all checks
+  oh-my-pilot doctor --verbose # Show detailed output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
 			cfg, err := loadConfig()
@@ -34,8 +34,8 @@ Examples:
 
 			// Header
 			fmt.Println()
-			fmt.Println("Pilot Health Check")
-			fmt.Println("==================")
+			fmt.Println("oh-my-pilot Health Check")
+			fmt.Println("===========================")
 			fmt.Println()
 
 			// Dependencies
@@ -137,15 +137,15 @@ Examples:
 				}
 			} else {
 				fmt.Printf("✗ Not ready - %d critical error(s)\n", errors)
-				fmt.Println("   Fix required dependencies before running Pilot")
+				fmt.Println("   Fix required dependencies before running oh-my-pilot")
 			}
 			fmt.Println()
 
 			// Helpful next steps
-			fmt.Println("Run 'pilot setup' for interactive configuration wizard")
+			fmt.Println("Run 'oh-my-pilot setup' for interactive configuration wizard")
 
 			if report.HasErrors {
-				return fmt.Errorf("%d error(s) detected — fix them before running Pilot", errors)
+				return fmt.Errorf("%d error(s) detected — fix them before running oh-my-pilot", errors)
 			}
 			return nil
 		},

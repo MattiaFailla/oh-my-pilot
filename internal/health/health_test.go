@@ -648,9 +648,16 @@ func TestRunChecks_ProjectCount(t *testing.T) {
 func TestCheckDependencies_ReturnsChecks(t *testing.T) {
 	deps := checkDependencies()
 
-	// Should have at minimum claude, git, gh
+	// Should have at minimum omp, git, gh.
 	if len(deps) < 3 {
 		t.Errorf("expected at least 3 dependency checks, got %d", len(deps))
+	}
+
+	if findCheck(deps, "omp") == nil {
+		t.Fatal("expected 'omp' dependency check")
+	}
+	if findCheck(deps, "claude") != nil {
+		t.Error("doctor must not include a legacy Claude CLI dependency check")
 	}
 
 	// git should be available on any dev machine

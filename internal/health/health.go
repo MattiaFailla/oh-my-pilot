@@ -1,6 +1,6 @@
 // Package health provides system health checks for Pilot.
 //
-// It verifies required dependencies (Claude Code CLI, git) are installed
+// It verifies required dependencies (Oh My Pi CLI, git) are installed
 // and checks feature availability based on configuration. The RunChecks function
 // generates a HealthReport used by the CLI status command to display system
 // readiness and configuration state.
@@ -526,11 +526,8 @@ func checkRunningVsDiskVersion(get httpGetter, port int, diskVersion string) Con
 // compared against GitHub releases for the self-upgrade staleness check
 // (GH-3790); pass "" to skip it.
 func RunChecks(cfg *config.Config, currentVersion string) *HealthReport {
-	// Determine active backend type from config
-	backendType := "claude-code" // default
-	if cfg.Executor != nil && cfg.Executor.Type != "" {
-		backendType = cfg.Executor.Type
-	}
+	// OMP is the only supported execution runtime.
+	backendType := "omp"
 
 	configChecks := checkConfig(cfg)
 	if cwd, err := os.Getwd(); err == nil {
@@ -602,8 +599,8 @@ func RunChecks(cfg *config.Config, currentVersion string) *HealthReport {
 
 // backendInfo holds metadata about a backend for health checks
 type backendInfo struct {
-	name        string   // display name (e.g., "claude")
-	backendType string   // executor.BackendType constant (e.g., "claude-code")
+	name        string   // display name (e.g., "omp")
+	backendType string   // executor.BackendType constant (e.g., "omp")
 	command     string   // CLI command to check
 	versionArgs []string // args to get version (e.g., ["--version"])
 	installCmd  string   // install instruction
@@ -611,32 +608,17 @@ type backendInfo struct {
 
 var backends = []backendInfo{
 	{
-		name:        "claude",
-		backendType: "claude-code",
-		command:     "claude",
+		name:        "omp",
+		backendType: "omp",
+		command:     "omp",
 		versionArgs: []string{"--version"},
-		installCmd:  "npm install -g @anthropic-ai/claude-code",
-	},
-	{
-		name:        "qwen",
-		backendType: "qwen-code",
-		command:     "qwen",
-		versionArgs: []string{"--version"},
-		installCmd:  "See https://github.com/anthropics/qwen-code",
-	},
-	{
-		name:        "opencode",
-		backendType: "opencode",
-		command:     "opencode",
-		versionArgs: []string{"version"},
-		installCmd:  "go install github.com/opencode-ai/opencode@latest",
+		installCmd:  "Install Oh My Pi: https://github.com/can1357/oh-my-pi",
 	},
 }
 
 // checkDependencies checks required system dependencies
 func checkDependencies() []Check {
-	// Use default backend type for backwards compatibility
-	return checkDependenciesWithBackend("claude-code")
+	return checkDependenciesWithBackend("omp")
 }
 
 // checkDependenciesWithBackend checks dependencies including backend-aware checks
@@ -675,7 +657,7 @@ func checkDependenciesWithBackend(activeBackendType string) []Check {
 		})
 	}
 
-	// Check all backends (active backend is required, others are optional)
+	// Check the OMP runtime. It is the only supported backend.
 	for _, backend := range backends {
 		isActive := backend.backendType == activeBackendType
 		version := getCommandVersion(backend.command, backend.versionArgs...)
@@ -690,23 +672,13 @@ func checkDependenciesWithBackend(activeBackendType string) []Check {
 				Status:  StatusOK,
 				Message: message,
 			})
-		} else {
-			if isActive {
-				// Active backend missing is an error
-				checks = append(checks, Check{
-					Name:    backend.name,
-					Status:  StatusError,
-					Message: "not found [active backend]",
-					Fix:     backend.installCmd,
-				})
-			} else {
-				// Other backends missing is informational (skip)
-				checks = append(checks, Check{
-					Name:    backend.name,
-					Status:  StatusDisabled,
-					Message: "not installed (optional)",
-				})
-			}
+		} else if isActive {
+			checks = append(checks, Check{
+				Name:    backend.name,
+				Status:  StatusError,
+				Message: "not found [active backend]",
+				Fix:     backend.installCmd,
+			})
 		}
 	}
 
@@ -749,7 +721,7 @@ func checkMacSleep() Check {
 		Name:    "sleep",
 		Status:  StatusWarning,
 		Message: "enabled (Pilot may pause when idle)",
-		Fix:     "pilot setup --no-sleep",
+		Fix:     "oh-my-pilot setup --no-sleep",
 	}
 }
 
@@ -792,7 +764,7 @@ func checkIssueSourceAdapter(cfg *config.Config) ConfigCheck {
 			Name:    "adapters",
 			Status:  StatusWarning,
 			Message: "no issue source enabled",
-			Fix:     "Enable at least one of: github, gitlab, linear, jira, asana, azure_devops, plane. Run 'pilot setup'.",
+			Fix:     "Enable at least one of: github, gitlab, linear, jira, asana, azure_devops, plane. Run 'oh-my-pilot setup'.",
 		}
 	}
 	return ConfigCheck{
@@ -845,7 +817,7 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 			Name:    "config file",
 			Status:  StatusWarning,
 			Message: "using defaults",
-			Fix:     "pilot init",
+			Fix:     "oh-my-pilot init",
 		})
 	} else {
 		checks = append(checks, ConfigCheck{
@@ -1146,14 +1118,11 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 func checkFeatures(cfg *config.Config) []FeatureStatus {
 	features := []FeatureStatus{}
 
-	// Determine active backend
-	backendType := "claude-code"
-	if cfg.Executor != nil && cfg.Executor.Type != "" {
-		backendType = cfg.Executor.Type
-	}
+	// OMP is the only supported execution runtime.
+	backendType := "omp"
 
 	// Find the command for the active backend
-	backendCmd := "claude" // default
+	backendCmd := "omp" // default
 	for _, b := range backends {
 		if b.backendType == backendType {
 			backendCmd = b.command
