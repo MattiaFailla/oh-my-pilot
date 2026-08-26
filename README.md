@@ -34,9 +34,31 @@ omp --version
 mkdir -p ~/.oh-my-pilot
 cp configs/oh-my-pilot.example.yaml ~/.oh-my-pilot/config.yaml
 
-oh-my-pilot doctor
-oh-my-pilot start --github
+./bin/oh-my-pilot doctor
+./bin/oh-my-pilot start --github
 ```
+
+## Build on macOS
+
+With Go `1.25+` installed locally, build a native binary with:
+
+```bash
+make build
+./bin/oh-my-pilot version
+```
+
+If Go is not installed locally, use Docker to produce a native macOS binary:
+
+```bash
+# Apple Silicon
+docker run --rm -e GOOS=darwin -e GOARCH=arm64 \
+  -v "$PWD":/app -w /app golang:1.25.0-bookworm \
+  sh -lc 'export PATH=/usr/local/go/bin:$PATH; make build'
+
+# Intel Mac: replace GOARCH=arm64 with GOARCH=amd64.
+```
+
+The executable is written to `bin/oh-my-pilot`.
 
 ## Docker Compose
 
