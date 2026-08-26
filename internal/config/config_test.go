@@ -203,17 +203,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestOMPExampleConfiguration(t *testing.T) {
-	for name, value := range map[string]string{
-		"GITHUB_TOKEN":              "test-github-token",
-		"JIRA_API_TOKEN":            "test-jira-token",
-		"JIRA_USERNAME":             "test@example.com",
-		"OH_MY_PILOT_GATEWAY_TOKEN": "test-gateway-token",
-		"SLACK_BOT_TOKEN":           "test-slack-token",
-		"TELEGRAM_BOT_TOKEN":        "test-telegram-token",
-		"TELEGRAM_CHAT_ID":          "123456",
-	} {
-		t.Setenv(name, value)
-	}
+	t.Setenv("GITHUB_TOKEN", "test-github-token")
 
 	configPath := filepath.Join("..", "..", "configs", "oh-my-pilot.example.yaml")
 	config, err := Load(configPath)

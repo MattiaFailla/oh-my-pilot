@@ -83,8 +83,8 @@ adapters:
     enabled: false
     platform: "cloud"                  # "cloud" or "server"
     base_url: "https://company.atlassian.net"
-    username: "${JIRA_USERNAME}"       # Email for Jira Cloud
-    api_token: "${JIRA_API_TOKEN}"
+    # username: "${JIRA_USERNAME}"     # Email for Jira Cloud
+    # api_token: "${JIRA_API_TOKEN}"
     project_key: "PROJ"
     pilot_label: "oh-my-pilot"
     transitions:
@@ -97,11 +97,11 @@ adapters:
   # Optional notifications and approval destinations.
   telegram:
     enabled: false
-    bot_token: "${TELEGRAM_BOT_TOKEN}"
-    chat_id: "${TELEGRAM_CHAT_ID}"
+    # bot_token: "${TELEGRAM_BOT_TOKEN}"
+    # chat_id: "${TELEGRAM_CHAT_ID}"
   slack:
     enabled: false
-    bot_token: "${SLACK_BOT_TOKEN}"
+    # bot_token: "${SLACK_BOT_TOKEN}"
     channel: "#oh-my-pilot"
 
 # Orchestration and PR/CI supervision
