@@ -80,6 +80,13 @@ func (m Model) handleGridKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	}
+
+	if m.forgetTarget != nil {
+		return m.handleForgetConfirmation(msg)
+	}
+
+	switch msg.String() {
 
 	case "b":
 		m.showBanner = !m.showBanner
@@ -173,6 +180,11 @@ func (m Model) handleGridKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			default:
 			}
 		}
+
+	case "x":
+		if m.focus == panelQueue {
+			return m.beginForgetSelectedTask()
+		}
 	}
 
 	return m, nil
@@ -184,6 +196,13 @@ func (m Model) handleZoomedKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	}
+
+	if m.forgetTarget != nil {
+		return m.handleForgetConfirmation(msg)
+	}
+
+	switch msg.String() {
 	case "esc":
 		m.zoomed = false
 		return m, tea.ClearScreen
@@ -203,8 +222,70 @@ func (m Model) handleZoomedKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.zoomEnter()
 	case "o":
 		return m.zoomOpenOnly()
+	case "x":
+		if m.focus == panelQueue {
+			return m.beginForgetSelectedTask()
+		}
 	}
 	return m, nil
+}
+
+func (m Model) beginForgetSelectedTask() (Model, tea.Cmd) {
+	if m.forgetTask == nil {
+		m.forgetNotice = "Task reset is unavailable"
+		return m, tea.ClearScreen
+	}
+	task, ok := m.selectedQueueTask()
+	if !ok {
+		m.forgetNotice = "No task selected"
+		return m, tea.ClearScreen
+	}
+	m.forgetTarget = &task
+	m.forgetNotice = ""
+	return m, tea.ClearScreen
+}
+
+func (m Model) handleForgetConfirmation(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		task := *m.forgetTarget
+		handler := m.forgetTask
+		m.forgetTarget = nil
+		m.forgetNotice = "Forgetting " + task.ID + "..."
+		return m, func() tea.Msg {
+			return forgetTaskMsg{task: task, err: handler(task)}
+		}
+	case "n", "N", "esc":
+		m.forgetTarget = nil
+		m.forgetNotice = "Task reset cancelled"
+		return m, tea.ClearScreen
+	}
+	return m, nil
+}
+
+func (m Model) selectedQueueTask() (TaskDisplay, bool) {
+	if m.zoomed {
+		tasks := m.sortedTasks()
+		if m.zoomSel < 0 || m.zoomSel >= len(tasks) {
+			return TaskDisplay{}, false
+		}
+		return tasks[m.zoomSel], true
+	}
+	if m.selectedTask < 0 || m.selectedTask >= len(m.tasks) {
+		return TaskDisplay{}, false
+	}
+	return m.tasks[m.selectedTask], true
+}
+
+func removeDisplayedTask(tasks []TaskDisplay, target TaskDisplay) []TaskDisplay {
+	filtered := make([]TaskDisplay, 0, len(tasks))
+	for _, task := range tasks {
+		if task.ID == target.ID && task.ProjectPath == target.ProjectPath {
+			continue
+		}
+		filtered = append(filtered, task)
+	}
+	return filtered
 }
 
 // zoomListViewportH returns the row/line capacity of the zoomed panel's

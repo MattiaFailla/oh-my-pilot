@@ -410,6 +410,11 @@ type TaskDisplay struct {
 	ProjectName string // Short project name for git graph title (GH-2167)
 }
 
+// TaskForgetHandler removes all durable state for a terminal task so its
+// source adapter can offer it again. The host owns the storage and poller
+// details; the dashboard only owns the confirmation UI.
+type TaskForgetHandler func(TaskDisplay) error
+
 // TokenUsage tracks token consumption
 type TokenUsage struct {
 	InputTokens  int
@@ -479,6 +484,9 @@ type Model struct {
 	version        string
 	store          *memory.Store // SQLite persistence (GH-367)
 	sessionID      string        // Current session ID for persistence
+	forgetTask     TaskForgetHandler
+	forgetTarget   *TaskDisplay
+	forgetNotice   string
 
 	// Metrics cards
 	metricsCard   MetricsCardData
@@ -583,6 +591,11 @@ type tickMsg time.Time
 
 // updateTasksMsg updates the task list
 type updateTasksMsg []TaskDisplay
+
+type forgetTaskMsg struct {
+	task TaskDisplay
+	err  error
+}
 
 // addLogMsg adds a log entry
 type addLogMsg string
@@ -968,6 +981,11 @@ func (m *Model) SetProjectPath(path string) {
 	}
 }
 
+// SetTaskForgetHandler enables the confirmed queue-task reset action.
+func (m *Model) SetTaskForgetHandler(handler TaskForgetHandler) {
+	m.forgetTask = handler
+}
+
 // SetMetricsScopePath sets the project path used to filter store queries
 // (recent executions, lifetime tokens, task counts, sparklines, eval panel).
 // Defaults to the value passed to SetProjectPath when not set explicitly.
@@ -1255,6 +1273,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if gitCmd != nil {
 			return m, gitCmd
 		}
+
+	case forgetTaskMsg:
+		m.forgetTarget = nil
+		if msg.err != nil {
+			m.forgetNotice = fmt.Sprintf("Could not forget %s: %v", msg.task.ID, msg.err)
+			return m, tea.ClearScreen
+		}
+		m.forgetNotice = fmt.Sprintf("Forgot %s; it can be picked again", msg.task.ID)
+		m.tasks = removeDisplayedTask(m.tasks, msg.task)
+		if m.selectedTask >= len(m.tasks) {
+			m.selectedTask = len(m.tasks) - 1
+		}
+		if m.selectedTask < 0 {
+			m.selectedTask = 0
+		}
+		return m, tea.ClearScreen
 
 	case addLogMsg:
 		m.logs = append(m.logs, string(msg))
@@ -1859,15 +1893,19 @@ func (m Model) renderGrid() string {
 // mode shows the list/scroll keys for the zoomed panel.
 func (m Model) renderHelp() string {
 	var parts []string
-	if m.zoomed {
+	if m.forgetTarget != nil {
+		parts = []string{"Forget " + m.forgetTarget.ID + "?", "y: confirm", "n/esc: cancel"}
+	} else if m.zoomed {
 		switch m.focus {
-		case panelQueue, panelAutopilot, panelHistory:
+		case panelQueue:
+			parts = []string{"q: quit", "esc: back", "j/k: move", "enter/o: open", "x: forget"}
+		case panelAutopilot, panelHistory:
 			parts = []string{"q: quit", "esc: back", "j/k: move", "enter/o: open"}
 		default:
 			parts = []string{"q: quit", "esc: back", "j/k: scroll", "g/G: top/bottom"}
 		}
 	} else {
-		parts = []string{"q: quit", "hjkl: focus", "enter: zoom", "g: graph", "L: logs", "b: banner"}
+		parts = []string{"q: quit", "hjkl: focus", "enter: zoom", "x: forget", "g: graph", "L: logs"}
 	}
 	help := strings.Join(parts, "  ")
 	tw := m.effectivePanelTotalWidth()
@@ -2178,6 +2216,11 @@ func (m Model) renderTasks() string {
 	}
 	if leg := buildAdapterLegend(m.bannerAdapters); leg != "" {
 		segs = append(segs, leg)
+	}
+	if m.forgetTarget != nil {
+		segs = append(segs, warningStyle.Render("forget "+m.forgetTarget.ID+"? y/n"))
+	} else if m.forgetNotice != "" {
+		segs = append(segs, dimStyle.Render(m.forgetNotice))
 	}
 	info := strings.Join(segs, "  ")
 

@@ -1074,6 +1074,7 @@ Examples:
 						gwAutopilotController.SetMonitor(gwMonitor)
 					}
 					model := dashboard.NewModelWithOptions(version, gwStore, gwAutopilotController, nil)
+					model.SetTaskForgetHandler(newDashboardTaskForgetHandler(gwStore, gwMonitor, cfg, gwAutopilotStateStore, nil))
 					model.SetProjectPath(projectPath)
 					scope := ""
 					if cfg.Dashboard != nil {
@@ -2797,6 +2798,7 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 	var monitor *executor.Monitor
 	var program *tea.Program
 	var upgradeRequestCh chan struct{} // Channel for hot upgrade requests (GH-369)
+	var ghPollerRegistry *githubPollerRegistry
 	if dashboardMode {
 		runner.SuppressProgressLogs(true)
 
@@ -2817,6 +2819,11 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 		}
 		upgradeRequestCh = make(chan struct{}, 1)
 		model := dashboard.NewModelWithOptions(version, store, autopilotController, upgradeRequestCh)
+		model.SetTaskForgetHandler(newDashboardTaskForgetHandler(store, monitor, cfg, autopilotStateStore, func(repo string, issueNumber int) {
+			if ghPollerRegistry != nil {
+				ghPollerRegistry.clearProcessed(repo, issueNumber)
+			}
+		}))
 		model.SetProjectPath(projectPath)
 		scope := ""
 		if cfg.Dashboard != nil {
@@ -3284,7 +3291,7 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 	// poller's CreateAndStart). The sub-issue-skip / done-remark / stale-label
 	// callbacks route through this so they reach the SDK poller and stay scoped
 	// to the correct repo.
-	ghPollerRegistry := newGithubPollerRegistry()
+	ghPollerRegistry = newGithubPollerRegistry()
 	polledRepos := make(map[string]bool) // Track repos already polled to avoid duplicates
 
 	if cfg.Adapters.GitHub != nil && cfg.Adapters.GitHub.Enabled &&

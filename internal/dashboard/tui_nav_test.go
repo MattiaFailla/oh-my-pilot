@@ -188,6 +188,36 @@ func TestNav_ZoomedQueueOpensURL(t *testing.T) {
 	}
 }
 
+func TestNav_ForgetTerminalQueueTask(t *testing.T) {
+	m := navTestModel(100, 40)
+	m.tasks = []TaskDisplay{{ID: "GH-42", Title: "Retry me", Status: QueueStatusFailed, ProjectPath: "/repo"}}
+	var forgotten TaskDisplay
+	m.SetTaskForgetHandler(func(task TaskDisplay) error {
+		forgotten = task
+		return nil
+	})
+
+	updated, _ := m.Update(makeKey("x"))
+	m = updated.(Model)
+	if m.forgetTarget == nil || m.forgetTarget.ID != "GH-42" {
+		t.Fatalf("forget target = %#v, want GH-42", m.forgetTarget)
+	}
+
+	updated, command := m.Update(makeKey("y"))
+	m = updated.(Model)
+	if command == nil {
+		t.Fatal("confirming forget should run the configured handler")
+	}
+	updated, _ = m.Update(command())
+	m = updated.(Model)
+	if forgotten.ID != "GH-42" {
+		t.Errorf("forgotten task = %#v, want GH-42", forgotten)
+	}
+	if len(m.tasks) != 0 {
+		t.Errorf("queue tasks = %#v, want empty", m.tasks)
+	}
+}
+
 // TestNav_ZoomedAutopilotUncapped verifies the zoomed autopilot panel lists
 // every active PR (no maxAutopilotRows cap) and that selection — keyed by PR
 // number, not index — survives a live-pull reorder (GetActivePRs iterates a
