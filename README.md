@@ -87,6 +87,8 @@ executor:
 
 Do not add provider API keys or endpoint settings to this file. See the [OMP execution runtime documentation](docs/content/concepts/execution-backends.mdx) and [OMP profiles guide](docs/content/guides/omp-profiles.mdx).
 
+The full [configuration example](configs/oh-my-pilot.example.yaml) includes a review-first autopilot setup: it polls either GitHub issues or Jira issues, runs OMP, opens pull requests, and monitors CI with `auto_merge: false`. Jira mode still requires `adapters.github.token` and `adapters.github.repo`, because GitHub remains the pull-request and CI destination.
+
 ## Development
 
 ```bash

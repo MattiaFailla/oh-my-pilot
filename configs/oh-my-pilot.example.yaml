@@ -1,55 +1,256 @@
 # oh-my-pilot configuration
-# Copy to ~/.oh-my-pilot/config.yaml and mount an OMP profile separately.
+# Copy this file to ~/.oh-my-pilot/config.yaml and replace every placeholder.
+#
+# This is an OMP-only configuration. Provider credentials, model selection, and
+# MCP configuration belong to the OMP profile, never this file. The autopilot
+# below opens and monitors PRs and CI, but it never merges a PR automatically.
 
 version: "1.0"
 
+# Gateway server settings. Keep the default loopback binding unless a reverse
+# proxy protects the gateway with auth.type: api-token.
 gateway:
   host: "127.0.0.1"
   port: 9090
 
 auth:
-  # Local-only gateway access. Use api-token with a token when exposing it.
+  # Local-only gateway access. For a remotely exposed gateway use api-token
+  # and set token: "${OH_MY_PILOT_GATEWAY_TOKEN}".
   type: "local"
 
+# OMP execution settings
 executor:
-  # OMP is the only supported agent backend. Authentication, provider routing,
-  # and model profiles live in PI_CODING_AGENT_DIR, never this file.
+  # OMP is the only supported execution backend.
   type: "omp"
+  auto_create_pr: true
+  use_worktree: true
+  heartbeat_timeout: 5m
+  planning_timeout: 10m
+
   omp:
     command: "omp"
     version: "18.0.5"
-    profile_dir: "/home/pilot/.omp"
+    # Native installation: ~/.omp
+    # Container installation: /home/pilot/.omp
+    profile_dir: "~/.omp"
     # thinking: "high"
     # extra_args: []
 
+  # Let OMP select the appropriate configured model and effort. Do not add
+  # provider API keys or Claude-specific model names here.
   model_routing:
     enabled: true
   effort_routing:
     enabled: true
 
-  use_worktree: true
-  auto_create_pr: true
-  heartbeat_timeout: 5m
-  planning_timeout: 10m
+  # Optional OMP-backed issue viability check before work starts.
+  # pre_flight_judge:
+  #   enabled: true
 
+# Work sources and messaging adapters
 adapters:
+  # GitHub is required for PR creation and CI monitoring in both source modes.
+  # In Jira mode leave this adapter's polling disabled, but still configure its
+  # token and repo so autopilot can create and supervise pull requests.
   github:
     enabled: false
     token: "${GITHUB_TOKEN}"
+    repo: "owner/repo"
+    pilot_label: "oh-my-pilot"
+    polling:
+      enabled: false
+      interval: 30s
+      label: "oh-my-pilot"
+    # GitHub App authentication can replace token/GITHUB_TOKEN:
+    # app:
+    #   app_id: 123456
+    #   installation_id: 78901234
+    #   private_key_path: "/etc/oh-my-pilot/github-app.pem"
+    # Optional GitHub Projects V2 lifecycle sync:
+    # project_board:
+    #   enabled: true
+    #   project_number: 1
+    #   status_field: "Status"
+    #   statuses:
+    #     in_progress: "In Progress"
+    #     review: "In Review"
+    #     done: "Done"
+    #     failed: "Blocked"
+
+  # Jira can be the work source while GitHub remains the PR/CI destination.
+  # Enable exactly one issue poller: GitHub above OR Jira below.
+  jira:
+    enabled: false
+    platform: "cloud"                  # "cloud" or "server"
+    base_url: "https://company.atlassian.net"
+    username: "${JIRA_USERNAME}"       # Email for Jira Cloud
+    api_token: "${JIRA_API_TOKEN}"
+    project_key: "PROJ"
+    pilot_label: "oh-my-pilot"
+    transitions:
+      in_progress: "21"                # Jira transition ID, optional
+      done: "31"                       # Jira transition ID, optional
+    polling:
+      enabled: false
+      interval: 30s
+
+  # Optional notifications and approval destinations.
   telegram:
     enabled: false
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
   slack:
     enabled: false
+    bot_token: "${SLACK_BOT_TOKEN}"
+    channel: "#oh-my-pilot"
 
+# Orchestration and PR/CI supervision
 orchestrator:
   max_concurrent: 2
   execution:
+    # auto dispatches non-overlapping tasks concurrently.
     mode: "auto"
+    # Only applies to sequential mode. Keep false so manual PR merges do not
+    # prevent the next eligible issue from starting.
+    wait_for_merge: false
+    poll_interval: 30s
+    pr_timeout: 24h
 
+  autopilot:
+    # Starts PR lifecycle and CI monitoring. It needs adapters.github.token
+    # and adapters.github.repo even when Jira is the only issue source.
+    enabled: true
+    default_environment: "review"
+
+    # Safety invariant: oh-my-pilot never merges a PR. Humans merge after
+    # reviewing a green pull request.
+    auto_merge: false
+    merge_method: "squash"              # Used only if auto_merge is enabled later.
+    ci_wait_timeout: 30m
+    ci_poll_interval: 30s
+    approval_source: "github-review"
+
+    # CI check discovery is automatic by default. Set required only when the
+    # repository has known, stable check names that must gate readiness.
+    ci_checks:
+      mode: "auto"
+      exclude:
+        - "codecov/*"
+        - "*-optional"
+      # required:
+      #   - "test"
+      #   - "build"
+      discovery_grace_period: 60s
+
+    # A failed CI run is reported and the PR remains open for a human. Set
+    # auto_create_issues true only when you want failures to open additional
+    # oh-my-pilot-labelled fix issues for OMP to work on.
+    auto_create_issues: false
+    issue_labels:
+      - "oh-my-pilot"
+      - "ci-failure"
+    notify_on_failure: true
+    max_ci_fix_iterations: 3
+    max_failures: 3
+
+    # Release automation is deliberately off: a human controls merges and
+    # releases in this review-first workflow.
+    release:
+      enabled: false
+
+    environments:
+      review:
+        branch: "main"
+        require_approval: false
+        ci_timeout: 30m
+        skip_post_merge_ci: false
+        post_merge:
+          action: "none"
+
+# Optional approval requests before OMP starts work. This is independent of
+# pull-request merging, which remains manual because auto_merge is false.
+approval:
+  enabled: false
+  default_timeout: 1h
+  default_action: "rejected"
+  pre_execution:
+    enabled: false
+    approvers: []
+    timeout: 1h
+    default_action: "rejected"
+
+# Quality gates run after OMP completes and before it opens a pull request.
+# Replace commands to match the repositories that this instance manages.
+quality:
+  enabled: true
+  gates:
+    - name: build
+      type: build
+      command: "make build"
+      required: true
+      timeout: 5m
+    - name: test
+      type: test
+      command: "make test"
+      required: true
+      timeout: 10m
+    - name: lint
+      type: lint
+      command: "make lint"
+      required: false
+      timeout: 2m
+  on_failure:
+    action: "retry"
+    max_retries: 2
+
+# Local learning and execution data
 memory:
   path: "~/.oh-my-pilot/data"
+  cross_project: true
+  learning:
+    enabled: true
+    min_confidence: 0.6
+    max_patterns: 5
+    include_anti: true
 
+# Map the local checkout used by OMP to its GitHub PR destination. This is
+# required for GitHub-source and Jira-source operation alike.
+projects:
+  - name: "my-app"
+    path: "/path/to/my-app"
+    navigator: true
+    default_branch: "main"
+    github:
+      owner: "owner"
+      repo: "repo"
+    # Per-project quality gates override the global quality block above.
+    # quality:
+    #   enabled: true
+    #   gates:
+    #     - name: test
+    #       type: test
+    #       command: "pnpm test"
+    #       required: true
+    #       timeout: 10m
+
+dashboard:
+  refresh_interval: 1000
+  show_logs: true
+
+# Choose one source before starting oh-my-pilot:
+#
+# GitHub issues:
+#   adapters.github.enabled: true
+#   adapters.github.polling.enabled: true
+#   adapters.jira.enabled: false
+#
+# Jira issues (PRs and CI still use GitHub):
+#   adapters.github.enabled: false
+#   adapters.github.polling.enabled: false
+#   adapters.jira.enabled: true
+#   adapters.jira.polling.enabled: true
+#
 # OMP profile mounting examples:
 #   Docker Compose: ./omp-profile:/home/pilot/.omp:ro
 #   Kubernetes: set Helm value omp.profileSecret to a Secret containing the
-#   profile files. Do not put provider keys in this config file.
+#   profile files. Do not put provider keys in this configuration file.
