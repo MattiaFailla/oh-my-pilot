@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -48,6 +51,23 @@ func TestStartAdapterPollers_OnlyStartsEnabled(t *testing.T) {
 	}
 	if started[1] != "another-enabled" {
 		t.Errorf("expected second started = another-enabled, got %s", started[1])
+	}
+}
+
+func TestLogPollActivity(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	logPollActivity(context.Background(), logger, "github", 30*time.Second,
+		slog.String("repo", "owner/repo"),
+		slog.String("label", "oh-my-pilot"),
+	)
+
+	line := output.String()
+	for _, want := range []string{"Polling service for new work", "service=github", "interval=30s", "repo=owner/repo", "label=oh-my-pilot"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("poll activity log = %q, want %q", line, want)
+		}
 	}
 }
 

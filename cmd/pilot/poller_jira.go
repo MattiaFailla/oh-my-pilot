@@ -111,6 +111,10 @@ func jiraPollerRegistration() PollerRegistration {
 				slog.String("label", pilotLabel),
 				slog.Duration("interval", interval),
 			)
+			startPollActivityLog(ctx, deps, "jira", "jira", interval, logging.WithComponent("jira"),
+				slog.String("project", deps.Cfg.Adapters.Jira.ProjectKey),
+				slog.String("label", pilotLabel),
+			)
 			deps.SafeAdapterGo(ctx, "jira", func() {
 				if err := jiraPoller.Start(ctx); err != nil {
 					logging.WithComponent("jira").Error("Jira poller failed",

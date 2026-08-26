@@ -83,6 +83,38 @@ func StartAdapterPollers(ctx context.Context, deps *PollerDeps, registrations []
 	}
 }
 
+// startPollActivityLog emits an immediate and recurring INFO record for a
+// service's configured polling cadence. SDK pollers own their fetch loops, so
+// this host-level heartbeat makes each scheduled poll visible without coupling
+// the daemon to adapter-specific poller internals.
+func startPollActivityLog(ctx context.Context, deps *PollerDeps, adapterName, service string, interval time.Duration, logger *slog.Logger, attrs ...slog.Attr) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+
+	logPollActivity(ctx, logger, service, interval, attrs...)
+	deps.SafeAdapterGo(ctx, adapterName+":poll-activity", func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				logPollActivity(ctx, logger, service, interval, attrs...)
+			}
+		}
+	})
+}
+
+func logPollActivity(ctx context.Context, logger *slog.Logger, service string, interval time.Duration, attrs ...slog.Attr) {
+	fields := make([]slog.Attr, 0, len(attrs)+2)
+	fields = append(fields, slog.String("service", service), slog.Duration("interval", interval))
+	fields = append(fields, attrs...)
+	logger.LogAttrs(ctx, slog.LevelInfo, "Polling service for new work", fields...)
+}
+
 // SafeAdapterGo is the single entry point every adapter poller goroutine
 // must use to launch its listen loop (GH-4314): a panic in one adapter
 // (e.g. the studio-sdk Discord gateway's nil-conn deref that took down the

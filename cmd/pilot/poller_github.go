@@ -661,6 +661,9 @@ func startGithubSDKPollerForRepo(ctx context.Context, deps *PollerDeps, log *slo
 		slog.Bool("default_repo", target.isDefault),
 		slog.Bool("board_wired", sdkCfg.ProjectBoard != nil),
 	)
+	startPollActivityLog(ctx, deps, "github:"+target.repoFullName, "github", interval, repoLog,
+		slog.String("label", pilotLabel),
+	)
 	deps.SafeAdapterGo(ctx, "github:"+target.repoFullName, func() {
 		if err := githubPoller.Start(ctx); err != nil {
 			repoLog.Error("GitHub SDK poller failed",
