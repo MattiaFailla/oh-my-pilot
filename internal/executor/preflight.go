@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -19,9 +18,9 @@ type PreflightCheck struct {
 // DefaultPreflightChecks returns the standard set of pre-flight checks.
 var DefaultPreflightChecks = []PreflightCheck{
 	{
-		Name:        "claude_available",
-		Description: "Verify Claude Code CLI is available",
-		Check:       checkClaudeAvailable,
+		Name:        "omp_available",
+		Description: "Verify Oh My Pi CLI is available",
+		Check:       checkOMPAvailable,
 	},
 	{
 		Name:        "git_clean",
@@ -41,9 +40,8 @@ type PreflightOptions struct {
 	// is enabled, as the worktree is always clean (created from a commit).
 	SkipGitClean bool
 
-	// BackendType specifies the configured backend ("claude-code", "opencode", "qwen-code").
-	// When set, the CLI availability check matches the active backend instead of
-	// always requiring 'claude'.
+	// BackendType is retained for callers that report their configured runtime.
+	// OMP is the only supported value.
 	BackendType string
 }
 
@@ -58,36 +56,6 @@ func RunPreflightChecks(ctx context.Context, projectPath string) error {
 // because worktrees are always created from a commit (clean state).
 func RunPreflightChecksWithOptions(ctx context.Context, projectPath string, opts PreflightOptions) error {
 	checks := DefaultPreflightChecks
-
-	// GH-1483: Replace hardcoded claude check with backend-aware check
-	if opts.BackendType != "" && opts.BackendType != "claude-code" {
-		var filtered []PreflightCheck
-		for _, c := range checks {
-			if c.Name == "claude_available" {
-				if opts.BackendType == BackendTypeOpenAIAPI || opts.BackendType == BackendTypeAnthropicAPI {
-					// Direct HTTP backends have no CLI — verify API key is present instead
-					filtered = append(filtered, PreflightCheck{
-						Name:        "api_key_configured",
-						Description: fmt.Sprintf("Verify API key is configured for %s backend", opts.BackendType),
-						Check: func(ctx context.Context, _ string) error {
-							return checkOpenAIAPIKey(opts.BackendType)
-						},
-					})
-				} else {
-					filtered = append(filtered, PreflightCheck{
-						Name:        "backend_available",
-						Description: fmt.Sprintf("Verify %s CLI is available", opts.BackendType),
-						Check: func(ctx context.Context, _ string) error {
-							return checkBackendCLI(ctx, opts.BackendType)
-						},
-					})
-				}
-			} else {
-				filtered = append(filtered, c)
-			}
-		}
-		checks = filtered
-	}
 
 	if opts.SkipGitClean {
 		var filtered []PreflightCheck
@@ -140,9 +108,9 @@ func (e *PreflightError) Unwrap() error {
 	return e.Err
 }
 
-// checkClaudeAvailable verifies the claude CLI is installed and accessible.
-func checkClaudeAvailable(ctx context.Context, _ string) error {
-	return checkBackendCLI(ctx, "claude-code")
+// checkOMPAvailable verifies the pinned OMP CLI is installed and accessible.
+func checkOMPAvailable(ctx context.Context, _ string) error {
+	return checkBackendCLI(ctx, BackendTypeOMP)
 }
 
 // backendCLICommands maps backend type to the CLI command and version flag.
@@ -150,9 +118,7 @@ var backendCLICommands = map[string]struct {
 	command     string
 	versionFlag string
 }{
-	"claude-code": {command: "claude", versionFlag: "--version"},
-	"opencode":    {command: "opencode", versionFlag: "version"},
-	"qwen-code":   {command: "qwen", versionFlag: "--version"},
+	BackendTypeOMP: {command: "omp", versionFlag: "--version"},
 }
 
 // checkBackendCLI verifies the CLI for the given backend type is available.
@@ -168,18 +134,6 @@ func checkBackendCLI(ctx context.Context, backendType string) error {
 		return fmt.Errorf("%s command not available: %w (output: %s)", info.command, err, strings.TrimSpace(string(output)))
 	}
 	return nil
-}
-
-// checkOpenAIAPIKey verifies that an API key is available for direct HTTP backends
-// (openai-api, anthropic-api). No network call — local env check only.
-func checkOpenAIAPIKey(backendType string) error {
-	keys := []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PILOT_ENGINE_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
-	for _, k := range keys {
-		if v := os.Getenv(k); v != "" {
-			return nil
-		}
-	}
-	return fmt.Errorf("%s backend requires an API key: set OPENAI_API_KEY (or configure executor.openai.api_key)", backendType)
 }
 
 // checkGitClean verifies the git working directory has no uncommitted changes

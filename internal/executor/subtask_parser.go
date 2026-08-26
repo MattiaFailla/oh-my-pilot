@@ -29,22 +29,22 @@ type SubtaskParser struct {
 	cmdRunner func(ctx context.Context, args ...string) ([]byte, error)
 }
 
-// NewSubtaskParser creates a SubtaskParser using the claude subprocess.
-// Returns nil when the claude binary is not on PATH (caller should use regex fallback).
+// NewSubtaskParser creates a SubtaskParser using OMP RPC.
+// Returns nil when the OMP binary is not on PATH (caller should use regex fallback).
 func NewSubtaskParser(claudeCmd string, log *slog.Logger) *SubtaskParser {
 	if claudeCmd == "" {
-		claudeCmd = "claude"
+		claudeCmd = "omp"
 	}
 	if _, err := exec.LookPath(claudeCmd); err != nil {
 		if log != nil {
-			log.Warn("claude binary not found, subtask parser disabled (regex fallback will be used)",
+			log.Warn("OMP binary not found, subtask parser disabled (regex fallback will be used)",
 				"command", claudeCmd, "error", err)
 		}
 		return nil
 	}
 	p := &SubtaskParser{
 		claudeCmd: claudeCmd,
-		model:     "claude-haiku-4-5-20251001",
+		model:     "",
 		timeout:   30 * time.Second,
 		log:       log,
 	}
@@ -55,7 +55,7 @@ func NewSubtaskParser(claudeCmd string, log *slog.Logger) *SubtaskParser {
 // newSubtaskParserWithRunner creates a SubtaskParser with an injectable runner for testing.
 func newSubtaskParserWithRunner(runner func(ctx context.Context, args ...string) ([]byte, error), log *slog.Logger) *SubtaskParser {
 	return &SubtaskParser{
-		claudeCmd: "claude",
+		claudeCmd: "omp",
 		model:     "claude-haiku-4-5-20251001",
 		timeout:   30 * time.Second,
 		log:       log,
@@ -64,8 +64,7 @@ func newSubtaskParserWithRunner(runner func(ctx context.Context, args ...string)
 }
 
 func (p *SubtaskParser) defaultRunner(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, p.claudeCmd, args...)
-	return cmd.Output()
+	return runOMPCLICompat(ctx, args...)
 }
 
 // subtaskJSON is the JSON schema for subtask extraction.

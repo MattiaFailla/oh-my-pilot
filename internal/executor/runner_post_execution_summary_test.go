@@ -22,9 +22,14 @@ func TestGetPostExecutionSummary_RunsInGivenDir(t *testing.T) {
 	dir := t.TempDir()
 	scriptDir := t.TempDir()
 	script := filepath.Join(scriptDir, "fake-claude")
-	// Emit the claude --output-format json wrapper with the CWD as commit_sha.
+	// Emit an OMP RPC response with the CWD as commit_sha.
 	content := `#!/bin/sh
-printf '{"result":"ok","structured_output":{"branch_name":"b","commit_sha":"%s","files_changed":[],"summary":"s"}}' "$(pwd)"
+printf '%s\n' '{"type":"ready","supportedProtocolVersions":[2]}'
+read protocol
+read tools
+read prompt
+printf '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"{\\"branch_name\\":\\"b\\",\\"commit_sha\\":\\"%s\\",\\"files_changed\\":[],\\"summary\\":\\"s\\"}"}}\n' "$(pwd)"
+printf '%s\n' '{"type":"agent_end","isTerminal":true}'
 `
 	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake claude: %v", err)
@@ -32,7 +37,8 @@ printf '{"result":"ok","structured_output":{"branch_name":"b","commit_sha":"%s",
 
 	r := NewRunner()
 	r.config = &BackendConfig{
-		ClaudeCode: &ClaudeCodeConfig{Command: script, UseStructuredOutput: true},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: script},
 	}
 
 	summary, err := r.getPostExecutionSummary(context.Background(), dir)

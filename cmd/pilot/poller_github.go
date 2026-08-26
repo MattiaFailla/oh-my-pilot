@@ -519,19 +519,15 @@ func startGithubSDKPollerForRepo(ctx context.Context, deps *PollerDeps, log *slo
 		pollerDeps.ExecutionChecker = execChecker
 	}
 
-	// GH-2802: pre-flight judge (CC subprocess, no API key) — mirrors the
-	// in-tree gating incl. the claude-binary lookup.
+	// GH-2802: pre-flight judge through the configured OMP runtime.
 	if deps.Cfg.Executor != nil && deps.Cfg.Executor.PreFlightJudge != nil && deps.Cfg.Executor.PreFlightJudge.Enabled {
-		claudeCmd := ""
-		if deps.Cfg.Executor.ClaudeCode != nil {
-			claudeCmd = deps.Cfg.Executor.ClaudeCode.Command
+		ompCmd := "omp"
+		if deps.Cfg.Executor.OMP != nil && deps.Cfg.Executor.OMP.Command != "" {
+			ompCmd = deps.Cfg.Executor.OMP.Command
 		}
-		if claudeCmd == "" {
-			claudeCmd = "claude"
-		}
-		if _, err := exec.LookPath(claudeCmd); err != nil {
-			repoLog.Warn("Pre-flight judge disabled: claude binary not found",
-				slog.String("command", claudeCmd))
+		if _, err := exec.LookPath(ompCmd); err != nil {
+			repoLog.Warn("Pre-flight judge disabled: OMP binary not found",
+				slog.String("command", ompCmd))
 		} else {
 			// GH-4377: wire this repo's autopilot metrics (if any) so judge
 			// subprocess failures are visible as pilot_intent_judge_failures_total
@@ -540,7 +536,8 @@ func startGithubSDKPollerForRepo(ctx context.Context, deps *PollerDeps, log *slo
 			if controller != nil {
 				judgeMetrics = controller.Metrics()
 			}
-			preflightJudge := executor.NewIntentJudge(claudeCmd)
+			preflightJudge := executor.NewIntentJudge(ompCmd)
+			preflightJudge.SetOMPConfig(deps.Cfg.Executor.OMP)
 			// GH-4669: allow overriding the raised 60s default from config.
 			if deps.Cfg.Executor.PreFlightJudge.Timeout != "" {
 				if d, err := time.ParseDuration(deps.Cfg.Executor.PreFlightJudge.Timeout); err == nil {

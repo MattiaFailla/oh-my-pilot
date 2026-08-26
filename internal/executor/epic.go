@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -247,62 +246,26 @@ type CreatedIssue struct {
 //	PlanEpic → parseSubtasksWithFallback → SubtaskParser (Haiku API) → parseSubtasks (regex)
 var numberedListRegex = regexp.MustCompile(`(?mi)^(?:\s*)(?:#{1,6}\s+)?(?:[-*]\s+)?(?:\*{0,2})(?:step|phase|task)?\s*(\d+)[.):]\s*(.+)`)
 
-// PlanEpic runs Claude Code in planning mode to break an epic into subtasks.
+// PlanEpic runs OMP in planning mode to break an epic into subtasks.
 // Returns an EpicPlan with 3-5 sequential subtasks.
 // executionPath may differ from task.ProjectPath when using worktree isolation (GH-968).
 func (r *Runner) PlanEpic(ctx context.Context, task *Task, executionPath string) (*EpicPlan, error) {
 	// Build planning prompt
 	prompt := buildPlanningPrompt(task)
 
-	// Get claude command from config or use default
-	claudeCmd := "claude"
-	if r.config != nil && r.config.ClaudeCode != nil && r.config.ClaudeCode.Command != "" {
-		claudeCmd = r.config.ClaudeCode.Command
-	}
-
-	// GH-2432: Planning gets Opus for stronger reasoning; execution stays on
-	// Sonnet (set via the regular runner path). The model is also exported via
-	// ANTHROPIC_MODEL because Pilot's global env may otherwise win on Node's
-	// last-write lookup inside Claude Code (see backend_claudecode.go).
+	// Planning can use a stronger profile model than normal execution.
 	planningModel := "claude-opus-4-7"
 	if r.config != nil && r.config.Planning != nil && r.config.Planning.Model != "" {
 		planningModel = r.config.Planning.Model
 	}
 
-	// Run Claude Code with --print flag for planning. Restrict tools to
-	// read-only — planning must not write code.
-	args := []string{
-		"--print", "-p", prompt,
-		"--model", planningModel,
-		"--allowedTools", strings.Join(DefaultAllowedToolsPlanning(), ","),
+	r.log.Debug("Running OMP planning", "task_id", task.ID, "model", planningModel)
+	output, err := RunOMPQuery(ctx, ompConfigFromBackend(r.config), executionPath, prompt, planningModel)
+	if err != nil {
+		return nil, fmt.Errorf("OMP planning failed: %w", err)
 	}
-
-	cmd := exec.CommandContext(ctx, claudeCmd, args...)
-	cmd.Env = append(os.Environ(), "ANTHROPIC_MODEL="+planningModel)
-
-	// Set working directory - use executionPath which respects worktree isolation
-	if executionPath != "" {
-		cmd.Dir = executionPath
-	}
-
-	// Capture output
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	r.log.Debug("Running Claude Code planning",
-		"task_id", task.ID,
-		"command", claudeCmd,
-		"args", args,
-	)
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("claude planning failed: %w (stderr: %s)", err, stderr.String())
-	}
-
-	output := stdout.String()
 	if output == "" {
-		return nil, fmt.Errorf("claude planning returned empty output")
+		return nil, fmt.Errorf("OMP planning returned empty output")
 	}
 
 	// Parse subtasks: tries Haiku structured extraction first, falls back to regex.

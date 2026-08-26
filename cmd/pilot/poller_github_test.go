@@ -362,14 +362,14 @@ func TestSdkPreFlightJudge_JudgeIssue_TimeoutIncrementsMetricOnce(t *testing.T) 
 	}
 
 	dir := t.TempDir()
-	scriptPath := dir + "/slow-claude.sh"
-	// Ignores all args (title/body/model/flags) and just outlives any
-	// reasonable preflight deadline, forcing a real context-deadline kill.
+	scriptPath := dir + "/slow-omp.sh"
+	// Completes the OMP RPC handshake, then outlives any reasonable preflight
+	// deadline, forcing a real context-deadline kill.
 	// Uses `exec` so sleep replaces the shell in-place (single PID) — without
 	// it, killing the shell leaves an orphaned sleep holding the stdout pipe
 	// open, and Wait() blocks on pipe EOF for the full 5s regardless of the
 	// context deadline.
-	script := "#!/bin/sh\nexec sleep 5\n"
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"ready\",\"supportedProtocolVersions\":[2]}'\nread protocol\nread tools\nread prompt\nexec sleep 5\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write test script: %v", err)
 	}

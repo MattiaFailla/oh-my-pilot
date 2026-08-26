@@ -115,7 +115,7 @@ func TestDefaultConfig(t *testing.T) {
 			t.Fatal("Memory config is nil")
 		}
 		homeDir, _ := os.UserHomeDir()
-		expectedPath := filepath.Join(homeDir, ".pilot", "data")
+		expectedPath := filepath.Join(homeDir, ".oh-my-pilot", "data")
 		if config.Memory.Path != expectedPath {
 			t.Errorf("Memory.Path = %q, want %q", config.Memory.Path, expectedPath)
 		}
@@ -1237,7 +1237,7 @@ func TestDefaultConfigPath(t *testing.T) {
 		t.Fatalf("Failed to get home directory: %v", err)
 	}
 
-	expected := filepath.Join(homeDir, ".pilot", "config.yaml")
+	expected := filepath.Join(homeDir, ".oh-my-pilot", "config.yaml")
 	result := DefaultConfigPath()
 
 	if result != expected {
@@ -2108,7 +2108,7 @@ func TestSave_PermissionsAre0600(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	configDir := filepath.Join(tmpDir, ".pilot")
+	configDir := filepath.Join(tmpDir, ".oh-my-pilot")
 	configPath := filepath.Join(configDir, "config.yaml")
 
 	cfg := &Config{Version: "1.0"}

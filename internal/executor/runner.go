@@ -87,28 +87,18 @@ func IsDeterministicFailure(errStr string) bool {
 	return strings.HasPrefix(strings.TrimSpace(errStr), deterministicFailurePrefix)
 }
 
-// envClassFailureSignatures are substrings in error messages that indicate
-// the executor process itself could not authenticate to its model backend —
-// a missing or invalid credential/env var, or a backend construction
-// failure because none of the recognized credential env vars were set (see
-// AnthropicBackend.IsAvailable, backend_anthropic.go:71, and the env var
-// priority list at backend_anthropic.go:59-64) — rather than a genuine code
-// failure. GH-5211: a missing ANTHROPIC_API_KEY reproduces byte-identically
-// on every retry (same error text, 0 tokens, no diff, ~4s), which otherwise
-// trips the dispatcher's identical-failure streak escalation
-// (dispatcher.go priorClaimsHadIdenticalFailureStreak) after just
-// consecutiveIdenticalFailureThreshold attempts, treating pure
-// infrastructure as if the task's own code were broken.
+// envClassFailureSignatures identify OMP runtime/profile failures rather than
+// genuine code failures. They are retried as infrastructure failures instead
+// of being escalated as identical implementation failures.
 var envClassFailureSignatures = []string{
+	"omp: command not found",
+	"OMP profile",
+	"PI_CODING_AGENT_DIR",
+	"start OMP",
 	"ANTHROPIC_API_KEY",
 	"PILOT_ENGINE_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
 	"CLAUDE_CODE_OAUTH_TOKEN",
-	// Backend-not-available construction errors — backend_anthropic.go:547
-	// ("no API key configured for anthropic-api backend"), the analogous
-	// backend_openai.go message, and preflight.go's checkOpenAIAPIKey
-	// ("<type> backend requires an API key: ...") all phrase the failure
-	// this way regardless of which specific env var was missing.
 	"no API key configured",
 	"requires an API key",
 }
@@ -142,7 +132,7 @@ func IsEnvClassFailureText(errStr string) bool {
 //     and finished inside EnvClassFailureDurationThreshold
 //
 // The structural check guards against a genuine code failure that merely
-// mentions one of these env var names (e.g. in output or a diff) — which
+// mentions one of these runtime markers (e.g. in output or a diff) — which
 // would still have tokens and/or a deliverable — from being waved through
 // as infrastructure.
 func IsEnvClassFailure(errStr string, tokensTotal int64, commitSHA, prURL string, duration time.Duration) bool {
@@ -156,9 +146,8 @@ func IsEnvClassFailure(errStr string, tokensTotal int64, commitSHA, prURL string
 // entry found in errStr (case-insensitive, the same matching logic
 // IsEnvClassFailureText's containsAny uses), or "" if none match. GH-5217:
 // the dispatcher's env-class failure streak alert names which
-// credential/env signature is recurring (e.g. "ANTHROPIC_API_KEY") so an
-// operator can tell which credential rotted without reading the raw error
-// text.
+// runtime signature is recurring so an operator can diagnose it without
+// reading the raw error text.
 func MatchedEnvClassFailureSignature(errStr string) string {
 	if errStr == "" {
 		return ""
@@ -995,12 +984,12 @@ func (r *Runner) setReclaimSelfOwnedQueuedChildFn(fn func(subTask *Task) (execID
 	r.reclaimSelfOwnedQueuedChildFn = fn
 }
 
-// NewRunner creates a new Runner instance with Claude Code backend by default.
+// NewRunner creates a new Runner instance with OMP backend by default.
 // The Runner is ready to execute tasks immediately after creation.
 func NewRunner() *Runner {
 	log := logging.WithComponent("executor")
 	return &Runner{
-		backend:           NewClaudeCodeBackend(nil),
+		backend:           NewOMPBackend(nil),
 		running:           make(map[string]*exec.Cmd),
 		progressCallbacks: make(map[string]ProgressCallback),
 		tokenCallbacks:    make(map[string]TokenCallback),
@@ -1016,7 +1005,7 @@ func NewRunner() *Runner {
 // NewRunnerWithBackend creates a Runner with a specific backend.
 func NewRunnerWithBackend(backend Backend) *Runner {
 	if backend == nil {
-		backend = NewClaudeCodeBackend(nil)
+		backend = NewOMPBackend(nil)
 	}
 	log := logging.WithComponent("executor")
 	return &Runner{
@@ -1056,10 +1045,12 @@ func NewRunnerWithConfig(config *BackendConfig) (*Runner, error) {
 	if config != nil {
 		runner.modelRouter = NewModelRouterWithEffort(config.ModelRouting, config.Timeout, config.EffortRouting)
 
-		// GH-727: Attach LLM effort classifier if enabled
-		// Uses Claude Code subprocess with Haiku - no ANTHROPIC_API_KEY needed
+		// Attach the OMP-backed effort classifier when enabled.
 		if config.EffortClassifier != nil && config.EffortClassifier.Enabled {
 			classifier := NewEffortClassifier()
+			classifier.cmdRunner = func(ctx context.Context, args ...string) ([]byte, error) {
+				return runOMPCLICompatWithConfig(ctx, config.OMP, args...)
+			}
 			if config.EffortClassifier.Model != "" {
 				classifier.model = config.EffortClassifier.Model
 			}
@@ -1068,14 +1059,8 @@ func NewRunnerWithConfig(config *BackendConfig) (*Runner, error) {
 					classifier.timeout = d
 				}
 			}
-			if config.ClaudeCode != nil {
-				classifier.SetUseStructuredOutput(config.ClaudeCode.UseStructuredOutput)
-			}
 			if config.DefaultModel != "" {
 				classifier.model = config.DefaultModel
-			}
-			if config.APIBaseURL != "" {
-				classifier.apiURL = config.ResolveAPIBaseURL() + "/v1/messages"
 			}
 			runner.modelRouter.SetEffortClassifier(classifier)
 			runner.log.Info("LLM effort classifier initialized",
@@ -1088,48 +1073,42 @@ func NewRunnerWithConfig(config *BackendConfig) (*Runner, error) {
 		if config.Decompose != nil && config.Decompose.Enabled {
 			runner.decomposer = NewTaskDecomposer(config.Decompose)
 
-			// GH-727, GH-868: Attach LLM complexity classifier using Claude Code subprocess
-			// No ANTHROPIC_API_KEY needed - uses existing Claude Code subscription
+			// Attach the OMP-backed complexity classifier.
 			complexityClassifier := NewComplexityClassifier()
+			complexityClassifier.cmdRunner = func(ctx context.Context, args ...string) ([]byte, error) {
+				return runOMPCLICompatWithConfig(ctx, config.OMP, args...)
+			}
 			if config.DefaultModel != "" {
 				complexityClassifier.model = config.DefaultModel
-			}
-			if config.ClaudeCode != nil {
-				complexityClassifier.SetUseStructuredOutput(config.ClaudeCode.UseStructuredOutput)
 			}
 			runner.decomposer.SetClassifier(complexityClassifier)
 		}
 	}
 
-	// Initialize subtask parser using claude subprocess; nil if binary missing (GH-501, GH-2931)
+	// Initialize subtask parser through the OMP query path.
 	{
-		claudeCmd := ""
-		if config != nil && config.ClaudeCode != nil {
-			claudeCmd = config.ClaudeCode.Command
+		runner.subtaskParser = NewSubtaskParser("omp", runner.log)
+		if runner.subtaskParser != nil && config != nil {
+			runner.subtaskParser.cmdRunner = func(ctx context.Context, args ...string) ([]byte, error) {
+				return runOMPCLICompatWithConfig(ctx, config.OMP, args...)
+			}
 		}
-		if claudeCmd == "" {
-			claudeCmd = "claude"
-		}
-		runner.subtaskParser = NewSubtaskParser(claudeCmd, runner.log)
 		if runner.subtaskParser != nil && config != nil && config.DefaultModel != "" {
 			runner.subtaskParser.model = config.DefaultModel
 		}
 	}
 
-	// Initialize intent judge for diff-vs-ticket alignment (GH-624, GH-2817)
-	// Uses Claude Code subprocess — bills to operator's CC subscription, no API key required.
+	// Initialize intent judge for diff-vs-ticket alignment (GH-624, GH-2817).
 	if config != nil && config.IntentJudge != nil && (config.IntentJudge.Enabled == nil || *config.IntentJudge.Enabled) {
-		claudeCmd := ""
-		if config.ClaudeCode != nil {
-			claudeCmd = config.ClaudeCode.Command
+		ompCmd := "omp"
+		if config.OMP != nil && config.OMP.Command != "" {
+			ompCmd = config.OMP.Command
 		}
-		if claudeCmd == "" {
-			claudeCmd = "claude"
-		}
-		if _, err := exec.LookPath(claudeCmd); err != nil {
-			runner.log.Warn("Intent judge disabled: claude binary not found", slog.String("command", claudeCmd))
+		if _, err := exec.LookPath(ompCmd); err != nil {
+			runner.log.Warn("Intent judge disabled: OMP binary not found", slog.String("command", ompCmd))
 		} else {
-			runner.intentJudge = NewIntentJudge(claudeCmd)
+			runner.intentJudge = NewIntentJudge(ompCmd)
+			runner.intentJudge.SetOMPConfig(config.OMP)
 			if config.IntentJudge.Model != "" {
 				runner.intentJudge.model = config.IntentJudge.Model
 			}
@@ -1157,9 +1136,9 @@ func NewRunnerWithConfig(config *BackendConfig) (*Runner, error) {
 	}
 
 	// Initialize profile manager and drift detector (GH-1027)
-	// Global profile: ~/.pilot/profile.json, Project profile: .agent/.user-profile.json
+	// Global profile: ~/.oh-my-pilot/profile.json, Project profile: .agent/.user-profile.json
 	homeDir, _ := os.UserHomeDir()
-	globalProfilePath := filepath.Join(homeDir, ".pilot", "profile.json")
+	globalProfilePath := filepath.Join(homeDir, ".oh-my-pilot", "profile.json")
 	// Note: project path will be resolved per-task; using empty default here
 	runner.profileManager = memory.NewProfileManager(globalProfilePath, "")
 
@@ -1175,18 +1154,15 @@ func (r *Runner) Config() *BackendConfig {
 	return r.config
 }
 
-// backendType returns the configured backend type, defaulting to "claude-code".
+// backendType returns the configured backend type, defaulting to OMP.
 func (r *Runner) backendType() string {
 	if r.config != nil && r.config.Type != "" {
 		return r.config.Type
 	}
-	return "claude-code"
+	return BackendTypeOMP
 }
 
-// selfReviewTimeout returns the per-backend timeout for the self-review phase.
-// OpenCode runs are legitimately slower than Claude Code (server-managed
-// session, larger streaming overhead); a 2-minute cap cancels review while the
-// backend is still working and surfaces as a false regression. GH-2416.
+// selfReviewTimeout returns the OMP timeout for the self-review phase.
 // effectiveStallTimeout returns the stall detection threshold from config.
 // Delegates to BackendConfig.EffectiveStallTimeout(); returns the 3m default when
 // no config is set. TASK-308.
@@ -1195,42 +1171,49 @@ func (r *Runner) effectiveStallTimeout() time.Duration {
 }
 
 func (r *Runner) selfReviewTimeout() time.Duration {
-	if r.backendType() == BackendTypeOpenCode {
-		return 10 * time.Minute
-	}
-	return 2 * time.Minute
+	return 10 * time.Minute
 }
 
 // fallbackModelName returns the best-known model name for telemetry rows when
-// the backend stream did not surface a model field. Used to distinguish
-// "telemetry-missing" from "true-zero" runs in execution_metrics. Resolution:
-//  1. config.DefaultModel (set when running via OpenCode/GLM/etc.)
-//  2. OpenCode config.Model (e.g. "anthropic/claude-sonnet-4-6")
-//  3. Backend type prefix (e.g. "claude-code", "opencode") — never empty.
-//
-// GH-2428: previously runner.go hardcoded "claude-opus-4-6" as the fallback,
-// which (a) was stale (real Claude Code runs report 4-7) and (b) silently
-// labelled OpenCode/GLM runs as Claude Opus, biasing cost/model metrics.
+// the OMP stream did not surface a model field.
 func (r *Runner) fallbackModelName() string {
 	if r.config != nil {
 		if r.config.DefaultModel != "" {
 			return r.config.DefaultModel
 		}
-		if r.config.OpenCode != nil && r.config.Type == BackendTypeOpenCode && r.config.OpenCode.Model != "" {
-			return r.config.OpenCode.Model
-		}
 	}
 	return r.backendType()
 }
 
-// executionToolOptions returns the AllowedTools and MCPConfigPath that should
-// be applied to every backend.Execute call site driven by this Runner. These
-// shave the per-turn token cost by scoping the subprocess toolbox. GH-2432.
+// executionToolOptions is retained as a call-site compatibility seam. OMP
+// exposes Pilot-owned capabilities through its RPC host-tool protocol rather
+// than CLI tool and MCP configuration flags.
 func (r *Runner) executionToolOptions() (allowed []string, mcpPath string) {
-	if r.config != nil && r.config.ClaudeCode != nil {
-		return r.config.ClaudeCode.AllowedTools, r.config.ClaudeCode.MCPConfigPath
-	}
 	return nil, ""
+}
+
+func (r *Runner) ompHostToolHandler(task *Task, executionPath string) OMPHostToolHandler {
+	return func(ctx context.Context, name string, _ map[string]any) (string, error) {
+		switch name {
+		case "pilot_run_quality_gate":
+			if r.qualityCheckerFactory == nil {
+				return "", errors.New("Pilot quality gates are not configured for this task")
+			}
+			outcome, err := r.qualityCheckerFactory(task.ID, executionPath).Check(ctx)
+			if err != nil {
+				return "", fmt.Errorf("run Pilot quality gates: %w", err)
+			}
+			encoded, err := json.Marshal(outcome)
+			if err != nil {
+				return "", fmt.Errorf("encode Pilot quality result: %w", err)
+			}
+			return string(encoded), nil
+		case "pilot_github":
+			return "", errors.New("Pilot owns GitHub lifecycle actions; create commits and let the runner validate and publish the task branch")
+		default:
+			return "", fmt.Errorf("unsupported Pilot host tool %q", name)
+		}
+	}
 }
 
 // SetBackend changes the execution backend.
@@ -1244,7 +1227,7 @@ func (r *Runner) GetBackend() Backend {
 }
 
 // SetRecordingsPath sets a custom directory path for storing execution recordings.
-// If not set, recordings are stored in the default location (~/.pilot/recordings).
+// If not set, recordings are stored in the default location (~/.oh-my-pilot/recordings).
 func (r *Runner) SetRecordingsPath(path string) {
 	r.recordingsPath = path
 }
@@ -1355,11 +1338,6 @@ func (r *Runner) resolveSelectedModel(task *Task) string {
 		return model
 	}
 	if r.config == nil || r.config.DefaultModel == "" {
-		return ""
-	}
-	if r.config.Type == BackendTypeClaudeCode {
-		// CC reads ANTHROPIC_MODEL / its own settings; pass empty to avoid
-		// overriding the user's CC-side configuration.
 		return ""
 	}
 	return r.config.DefaultModel
@@ -3380,79 +3358,8 @@ func (r *Runner) executeWithOptions(ctx context.Context, task *Task, allowWorktr
 	backendName := r.backend.Name()
 	r.reportProgress(task.ID, "Starting", 0, fmt.Sprintf("Initializing %s...", backendName))
 
-	// Clean stale pilot hooks unconditionally — even when hooks.enabled is false.
-	// Prevents dead entries from accumulating after OS reboots clear temp dirs (GH-1749).
-	// Clean project root first (always), then worktree path if different (GH-1884).
-	projectSettingsPath := filepath.Join(task.ProjectPath, ".claude", "settings.json")
-	if cleanErr := CleanStalePilotHooks(projectSettingsPath); cleanErr != nil {
-		log.Warn("Failed to clean stale pilot hooks in project root", slog.Any("error", cleanErr))
-	}
-	if executionPath != task.ProjectPath {
-		worktreeSettingsPath := filepath.Join(executionPath, ".claude", "settings.json")
-		if cleanErr := CleanStalePilotHooks(worktreeSettingsPath); cleanErr != nil {
-			log.Warn("Failed to clean stale pilot hooks in worktree", slog.Any("error", cleanErr))
-		}
-	}
-
-	// Setup Claude Code hooks if enabled (GH-1266)
-	var hookRestoreFunc func() error
-	if r.config != nil && r.config.Hooks != nil && r.config.Hooks.Enabled {
-		log.Debug("Setting up Claude Code hooks", slog.String("task_id", task.ID))
-
-		// Create temporary directory for hook scripts
-		scriptDir, err := os.MkdirTemp("", "pilot-hooks-")
-		if err != nil {
-			log.Error("Failed to create hooks script directory", slog.Any("error", err))
-		} else {
-			// Write embedded scripts
-			if err := WriteEmbeddedScripts(scriptDir); err != nil {
-				log.Error("Failed to write embedded hook scripts", slog.Any("error", err))
-				// TASK-357 (A4b): MkdirTemp already created scriptDir; this branch
-				// sets no hookRestoreFunc, so without cleanup the temp dir leaks for
-				// the process lifetime. Remove it now before falling through.
-				if rmErr := os.RemoveAll(scriptDir); rmErr != nil {
-					log.Warn("Failed to clean up hook scripts after write failure", slog.Any("error", rmErr))
-				}
-			} else {
-				// Generate Claude settings
-				hookSettings := GenerateClaudeSettings(r.config.Hooks, scriptDir)
-
-				// Merge with existing settings.json (worktree-safe path)
-				settingsPath := filepath.Join(executionPath, ".claude", "settings.json")
-				_, mergeErr := MergeWithExisting(settingsPath, hookSettings)
-				if mergeErr != nil {
-					log.Error("Failed to setup Claude hooks", slog.Any("error", mergeErr))
-					// Clean up script directory
-					if rmErr := os.RemoveAll(scriptDir); rmErr != nil {
-						log.Warn("Failed to clean up hook scripts after merge error", slog.Any("error", rmErr))
-					}
-				} else {
-					hookRestoreFunc = func() error {
-						// Instead of blind restoreFunc() (which may write back stale entries
-						// from a previous crash), use targeted cleanup (GH-1884).
-						if cleanErr := CleanStalePilotHooks(settingsPath); cleanErr != nil {
-							log.Warn("Failed to clean pilot hooks from settings", slog.Any("error", cleanErr))
-						}
-						// Clean up script directory
-						if rmErr := os.RemoveAll(scriptDir); rmErr != nil {
-							log.Warn("Failed to clean up hook scripts", slog.Any("error", rmErr))
-						}
-						return nil
-					}
-					log.Debug("Claude Code hooks configured",
-						slog.String("settings_path", settingsPath),
-						slog.String("script_dir", scriptDir))
-				}
-			}
-		}
-	}
-
-	// Ensure cleanup happens regardless of execution outcome
-	defer func() {
-		if hookRestoreFunc != nil {
-			_ = hookRestoreFunc() // Error already logged inside hookRestoreFunc
-		}
-	}()
+	// OMP does not read or modify project-local Claude settings. Pilot quality
+	// gates stay runner-owned and run after each execution attempt.
 
 	// GH-1599: Log implementation phase
 	r.saveLogEntry(task.LogExecutionID(), "info", "Implementing changes...")
@@ -3499,10 +3406,10 @@ func (r *Runner) executeWithOptions(ctx context.Context, task *Task, allowWorktr
 	}
 
 	// GH-4129: mirror the epic path's :1919 pattern — record the milestone
-	// right before the real Claude invocation so the direct path's
+	// right before the real OMP invocation so the direct path's
 	// execution_events timeline no longer goes silent after spec_validated.
-	r.recordExecutionEvent(task.LogExecutionID(), memory.StageClaudeStarted, "direct execution invoked claude")
-	r.recordExecutionEvent(task.LogExecutionID(), memory.StageImplementationStarted, "direct path handing off to claude for implementation")
+	r.recordExecutionEvent(task.LogExecutionID(), memory.StageClaudeStarted, "direct execution invoked OMP")
+	r.recordExecutionEvent(task.LogExecutionID(), memory.StageImplementationStarted, "direct path handing off to OMP for implementation")
 
 	watchdogTimeout := 2 * timeout
 	allowedTools, mcpConfigPath := r.executionToolOptions()
@@ -7139,38 +7046,18 @@ type PostExecutionSummary struct {
 // git commands in the prompt ran in the daemon's CWD and reported the wrong repo's HEAD
 // (GH-3569/GH-3570 incident — false no-ops and wrong-repo completed SHAs).
 func (r *Runner) getPostExecutionSummary(ctx context.Context, dir string) (*PostExecutionSummary, error) {
-	if r.config == nil || r.config.ClaudeCode == nil {
-		return nil, fmt.Errorf("claude code backend not configured")
+	prompt := "Report git state: run 'git log --oneline -1' and 'git branch --show-current' and 'git diff --name-only HEAD~1'. Return only a JSON object with branch_name, commit_sha, files_changed, and summary."
+	model := ""
+	if r.config != nil {
+		model = r.config.ResolveModel("")
 	}
-
-	prompt := "Report git state: run 'git log --oneline -1' and 'git branch --show-current' and 'git diff --name-only HEAD~1'. Return branch name, latest commit SHA, and changed files."
-
-	// Use fast Haiku model for this simple task
-	claudeCmd := "claude"
-	if r.config.ClaudeCode.Command != "" {
-		claudeCmd = r.config.ClaudeCode.Command
-	}
-	cmd := exec.CommandContext(ctx, claudeCmd,
-		"--print",
-		"-p", prompt,
-		"--model", r.config.ResolveModel("claude-haiku-4-5-20251001"),
-		"--output-format", "json",
-		"--json-schema", PostExecutionSummarySchema,
-	)
-	cmd.Dir = dir
-
-	output, err := cmd.Output()
+	output, err := RunOMPQuery(ctx, ompConfigFromBackend(r.config), dir, prompt, model)
 	if err != nil {
-		return nil, fmt.Errorf("claude command failed: %w", err)
-	}
-
-	structuredOutput, err := extractStructuredOutput(output)
-	if err != nil {
-		return nil, fmt.Errorf("extract structured output: %w", err)
+		return nil, fmt.Errorf("OMP post-execution summary failed: %w", err)
 	}
 
 	var summary PostExecutionSummary
-	if err := json.Unmarshal(structuredOutput, &summary); err != nil {
+	if err := json.Unmarshal(stripJSONFences([]byte(output)), &summary); err != nil {
 		return nil, fmt.Errorf("parse post-execution summary: %w", err)
 	}
 
@@ -7191,37 +7078,18 @@ func (r *Runner) getContractEvidence(ctx context.Context, dir string, fields []s
 		return r.contractEvidenceFetchFn(ctx, dir, fields)
 	}
 
-	if r.config == nil || r.config.ClaudeCode == nil {
-		return nil, fmt.Errorf("claude code backend not configured")
+	prompt := buildContractEvidencePrompt(fields) + "\n\nReturn only the requested JSON object, without Markdown."
+	model := ""
+	if r.config != nil {
+		model = r.config.ResolveModel("")
 	}
-
-	prompt := buildContractEvidencePrompt(fields)
-
-	claudeCmd := "claude"
-	if r.config.ClaudeCode.Command != "" {
-		claudeCmd = r.config.ClaudeCode.Command
-	}
-	cmd := exec.CommandContext(ctx, claudeCmd,
-		"--print",
-		"-p", prompt,
-		"--model", r.config.ResolveModel("claude-haiku-4-5-20251001"),
-		"--output-format", "json",
-		"--json-schema", ContractEvidenceSchema,
-	)
-	cmd.Dir = dir
-
-	output, err := cmd.Output()
+	output, err := RunOMPQuery(ctx, ompConfigFromBackend(r.config), dir, prompt, model)
 	if err != nil {
-		return nil, fmt.Errorf("claude command failed: %w", err)
-	}
-
-	structuredOutput, err := extractStructuredOutput(output)
-	if err != nil {
-		return nil, fmt.Errorf("extract structured output: %w", err)
+		return nil, fmt.Errorf("OMP contract evidence failed: %w", err)
 	}
 
 	var resp contractEvidenceResponse
-	if err := json.Unmarshal(structuredOutput, &resp); err != nil {
+	if err := json.Unmarshal(stripJSONFences([]byte(output)), &resp); err != nil {
 		return nil, fmt.Errorf("parse contract evidence: %w", err)
 	}
 

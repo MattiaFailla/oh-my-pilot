@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -39,10 +38,11 @@ type IntentJudge struct {
 	maxDiffChars int
 	log          *slog.Logger
 	cmdRunner    func(ctx context.Context, args ...string) ([]byte, error)
+	ompConfig    *OMPConfig
 }
 
-// NewIntentJudge creates a new IntentJudge that calls Claude Code subprocess.
-// claudeCmd defaults to "claude" when empty.
+// NewIntentJudge creates a new IntentJudge backed by OMP RPC.
+// The field name remains for test compatibility.
 //
 // GH-4669 RCA: on the production box (post 2026-07-16 AWS cutover) the judge
 // subprocess failed open on effectively every real (non-trivial) invocation
@@ -58,11 +58,12 @@ type IntentJudge struct {
 // PreFlightJudgeConfig.Timeout).
 func NewIntentJudge(claudeCmd string) *IntentJudge {
 	if claudeCmd == "" {
-		claudeCmd = "claude"
+		claudeCmd = "omp"
 	}
 	j := &IntentJudge{
 		claudeCmd:        claudeCmd,
-		model:            "claude-haiku-4-5-20251001",
+		ompConfig:        &OMPConfig{Command: claudeCmd},
+		model:            "",
 		judgeTimeout:     60 * time.Second,
 		preflightTimeout: 60 * time.Second,
 		maxDiffChars:     maxDiffCharsDefault,
@@ -178,9 +179,8 @@ func extractStdinPrompt(args []string) (rest []string, prompt string, ok bool) {
 	return args, "", false
 }
 
-// defaultCmdRunner executes the claude command, sampling RSS and capturing a
-// bounded stderr tail so a kill can be diagnosed instead of surfacing as a
-// bare "signal: killed". GH-4377.
+// defaultCmdRunner routes the judge through the same OMP RPC transport used by
+// task execution. The old stdin extraction keeps oversized prompts off argv.
 //
 // GH-4583: the prompt value passed via "-p" is routed through stdin rather
 // than argv — see extractStdinPrompt — so diffs over Linux's 128KB
@@ -188,38 +188,31 @@ func extractStdinPrompt(args []string) (rest []string, prompt string, ok bool) {
 func (j *IntentJudge) defaultCmdRunner(ctx context.Context, args ...string) ([]byte, error) {
 	args, prompt, hasPrompt := extractStdinPrompt(args)
 
-	cmd := exec.CommandContext(ctx, j.claudeCmd, args...)
-	var stdout bytes.Buffer
-	stderr := newBoundedBuffer(maxJudgeStderrCaptureBytes)
-	cmd.Stdout = &stdout
-	cmd.Stderr = stderr
 	if hasPrompt {
-		cmd.Stdin = strings.NewReader(prompt)
+		args = append(args, "-p", prompt)
+	}
+	output, err := runOMPCLICompatWithConfig(ctx, j.ompConfig, args...)
+	if err == nil {
+		return output, nil
 	}
 
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	stderr := ""
+	var ompErr *OMPError
+	if errors.As(err, &ompErr) {
+		stderr = ompErr.Stderr
 	}
+	return nil, newJudgeSubprocessError(ctx, err, stderr, 0)
+}
 
-	rssCtx, cancelRSS := context.WithCancel(context.Background())
-	rssCh := StartRSSSampler(rssCtx, cmd.Process.Pid, judgeRSSSampleInterval)
-
-	waitErr := cmd.Wait()
-	cancelRSS()
-	var rss RSSSample
-	if sample, ok := <-rssCh; ok {
-		rss = sample
-	}
-
-	if waitErr != nil {
-		return nil, newJudgeSubprocessError(ctx, waitErr, stderr.String(), rss.PeakMB)
-	}
-	return stdout.Bytes(), nil
+// SetOMPConfig supplies the full OMP command/profile configuration for this
+// judge's stateless RPC requests.
+func (j *IntentJudge) SetOMPConfig(config *OMPConfig) {
+	j.ompConfig = config
 }
 
 // newIntentJudgeWithRunner creates an IntentJudge with a custom command runner for testing.
 func newIntentJudgeWithRunner(runner func(ctx context.Context, args ...string) ([]byte, error)) *IntentJudge {
-	j := NewIntentJudge("claude")
+	j := NewIntentJudge("omp")
 	j.cmdRunner = runner
 	return j
 }

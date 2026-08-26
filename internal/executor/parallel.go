@@ -257,37 +257,7 @@ func (p *ParallelRunner) executeSubagent(ctx context.Context, projectPath string
 		}
 	}
 
-	// Build command - use haiku for fast research
-	args := []string{"-p", task.Prompt, "--output-format", "text"}
-	if modelName != "" {
-		args = append([]string{"--model", modelName}, args...)
-	}
-
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = projectPath
-
-	// GH-4503: same fix as the primary backends — own process group so
-	// Cancel() and ctx-cancellation can reach any children this subagent
-	// forks, not just the tracked PID.
-	configureProcessGroup(cmd)
-	cmd.Cancel = func() error {
-		return killProcessGroup(cmd, syscall.SIGKILL)
-	}
-
-	// Track running command
-	cmdID := fmt.Sprintf("%s-%d", task.Type, time.Now().UnixNano())
-	p.mu.Lock()
-	p.running[cmdID] = cmd
-	p.mu.Unlock()
-
-	defer func() {
-		p.mu.Lock()
-		delete(p.running, cmdID)
-		p.mu.Unlock()
-	}()
-
-	// Execute
-	output, err := cmd.Output()
+	output, err := RunOMPQuery(ctx, nil, projectPath, task.Prompt, modelName)
 	duration := time.Since(start)
 
 	result := &SubagentResult{
@@ -301,7 +271,7 @@ func (p *ParallelRunner) executeSubagent(ctx context.Context, projectPath string
 	}
 
 	result.Success = true
-	result.Output = string(output)
+	result.Output = output
 	// Note: Token counts not available from text output mode
 	// Would need stream-json parsing for accurate counts
 

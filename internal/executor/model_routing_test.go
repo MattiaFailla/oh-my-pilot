@@ -142,9 +142,8 @@ func TestModelRouter_NilConfigs(t *testing.T) {
 		t.Error("Expected default timeout config")
 	}
 
-	// GH-2807: Default model routing is now enabled.
-	if !router.IsRoutingEnabled() {
-		t.Error("Expected routing to be enabled by default (GH-2807)")
+	if router.IsRoutingEnabled() {
+		t.Error("Expected routing to be disabled by default so the OMP profile selects models")
 	}
 
 	// Should still return a valid timeout
@@ -596,12 +595,10 @@ func TestModelRouter_SetOutcomeTracker(t *testing.T) {
 	}
 }
 
-// TestDefaultModelRoutingConfig_EnabledByDefault verifies that model routing is active
-// by default, as required by GH-2807.
-func TestDefaultModelRoutingConfig_EnabledByDefault(t *testing.T) {
+func TestDefaultModelRoutingConfig_DisabledByDefault(t *testing.T) {
 	cfg := DefaultModelRoutingConfig()
-	if !cfg.Enabled {
-		t.Error("DefaultModelRoutingConfig().Enabled = false, want true")
+	if cfg.Enabled {
+		t.Error("DefaultModelRoutingConfig().Enabled = true, want false")
 	}
 }
 

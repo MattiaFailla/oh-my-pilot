@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -218,11 +220,14 @@ func TestIntentJudge_Timeout(t *testing.T) {
 
 func TestNewIntentJudge_Defaults(t *testing.T) {
 	judge := NewIntentJudge("")
-	if judge.claudeCmd != "claude" {
-		t.Errorf("expected claudeCmd 'claude', got %q", judge.claudeCmd)
+	if judge.claudeCmd != "omp" {
+		t.Errorf("expected command 'omp', got %q", judge.claudeCmd)
 	}
-	if judge.model != "claude-haiku-4-5-20251001" {
+	if judge.model != "" {
 		t.Errorf("unexpected model: %s", judge.model)
+	}
+	if judge.ompConfig == nil || judge.ompConfig.Command != "omp" {
+		t.Errorf("unexpected OMP config: %#v", judge.ompConfig)
 	}
 	// GH-4669: raised from 30s/20s after live-box reproduction showed real
 	// (non-trivial) invocations baseline at 18.7-22.5s — the old deadlines
@@ -586,15 +591,20 @@ func TestNewJudgeSubprocessError_Other(t *testing.T) {
 // killed, and the resulting error carries the context_deadline cause plus a
 // *JudgeSubprocessError the caller can type-assert on.
 func TestDefaultCmdRunner_ContextDeadlineKill(t *testing.T) {
-	if _, err := exec.LookPath("sleep"); err != nil {
-		t.Skip("sleep not available on this system")
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available on this system")
 	}
 
-	judge := NewIntentJudge("sleep")
+	command := filepath.Join(t.TempDir(), "slow-omp")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"ready\",\"supportedProtocolVersions\":[2]}'\nread protocol\nread tools\nread prompt\nexec sleep 5\n"
+	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake OMP: %v", err)
+	}
+	judge := NewIntentJudge(command)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, err := judge.defaultCmdRunner(ctx, "5")
+	_, err := judge.defaultCmdRunner(ctx, "-p", "classify this issue")
 	if err == nil {
 		t.Fatal("expected error from a subprocess killed by context deadline")
 	}
@@ -616,8 +626,13 @@ func TestDefaultCmdRunner_StderrCaptured(t *testing.T) {
 		t.Skip("sh not available on this system")
 	}
 
-	judge := NewIntentJudge("sh")
-	_, err := judge.defaultCmdRunner(context.Background(), "-c", "echo boom-from-stderr >&2; exit 1")
+	command := filepath.Join(t.TempDir(), "failing-omp")
+	script := "#!/bin/sh\necho boom-from-stderr >&2\nexit 1\n"
+	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake OMP: %v", err)
+	}
+	judge := NewIntentJudge(command)
+	_, err := judge.defaultCmdRunner(context.Background(), "-p", "classify this issue")
 	if err == nil {
 		t.Fatal("expected error from nonzero exit")
 	}
@@ -673,19 +688,8 @@ func TestExtractStdinPrompt_NoPromptFlag(t *testing.T) {
 	}
 }
 
-// TestDefaultCmdRunner_LargePromptViaStdin is the regression test for
-// GH-4583: the intent judge's prompt (system prompt + issue body + full git
-// diff) was passed as a single argv element to `claude -p <prompt>`. Linux
-// caps a single argv element at MAX_ARG_STRLEN (128KB, see proc(5)); any
-// diff past that made fork/exec fail with "argument list too long" before
-// the judge subprocess ever ran.
-//
-// This drives the real defaultCmdRunner (not a mock) with a 200KB prompt —
-// well over the 128KB cap — through a shell script standing in for the
-// claude binary. The script ignores its positional args (mirroring the
-// flags Judge()/JudgeIssue() send alongside "-p") and echoes stdin back,
-// confirming the prompt now travels via stdin rather than argv and arrives
-// at the subprocess intact.
+// TestDefaultCmdRunner_LargePromptViaStdin verifies a 200KB prompt is sent
+// through the OMP RPC pipe rather than a process argument.
 func TestDefaultCmdRunner_LargePromptViaStdin(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available on this system")
@@ -693,13 +697,18 @@ func TestDefaultCmdRunner_LargePromptViaStdin(t *testing.T) {
 
 	prompt := strings.Repeat("A", 200*1024) // 200KB, over Linux's 128KB MAX_ARG_STRLEN
 
-	judge := NewIntentJudge("sh")
+	command := filepath.Join(t.TempDir(), "large-prompt-omp")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"ready\",\"supportedProtocolVersions\":[2]}'\nread protocol\nread tools\nread prompt\nprintf '%s\\n' '{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"delta\":\"received\"}}'\nprintf '%s\\n' '{\"type\":\"agent_end\",\"isTerminal\":true}'\n"
+	if err := os.WriteFile(command, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake OMP: %v", err)
+	}
+	judge := NewIntentJudge(command)
 	out, err := judge.defaultCmdRunner(context.Background(),
-		"-c", "cat", "--", "--print", "-p", prompt, "--model", "x", "--output-format", "text")
+		"--print", "-p", prompt, "--model", "x", "--output-format", "text")
 	if err != nil {
 		t.Fatalf("defaultCmdRunner failed on a 200KB prompt (expected no E2BIG): %v", err)
 	}
-	if string(out) != prompt {
-		t.Errorf("prompt not passed through stdin intact: got %d bytes, want %d bytes", len(out), len(prompt))
+	if string(out) != "received" {
+		t.Errorf("unexpected OMP result: %q", out)
 	}
 }

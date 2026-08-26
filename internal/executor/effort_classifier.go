@@ -8,8 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -17,10 +15,7 @@ import (
 	"github.com/qf-studio/pilot/internal/logging"
 )
 
-// EffortClassifier uses an LLM (Haiku) to classify task effort level.
-// Supports two modes:
-//   - "api": Direct HTTP call to Anthropic Messages API (~1MB memory)
-//   - "subprocess": Spawns `claude --print` (~300MB memory, legacy)
+// EffortClassifier uses a stateless OMP query to classify task effort level.
 //
 // Falls back to static complexity→effort mapping on failure.
 // Caches results per task ID to avoid re-classification on retries.
@@ -32,8 +27,8 @@ type EffortClassifier struct {
 	timeout             time.Duration
 	log                 *slog.Logger
 	useStructuredOutput bool
-	apiKey              string // Anthropic API key or OAuth token for direct API mode
-	apiURL              string // API endpoint URL (default: https://api.anthropic.com/v1/messages)
+	apiKey              string // retained for deprecated test helpers; production leaves it empty
+	apiURL              string // retained for deprecated test helpers
 
 	// cmdRunner is the function that executes the claude command (subprocess mode).
 	// Can be overridden for testing.
@@ -71,38 +66,23 @@ BIAS: When uncertain between MEDIUM and HIGH, prefer MEDIUM. Most tasks perform 
 Respond with ONLY a JSON object (no markdown, no explanation):
 {"effort": "low|medium|high", "reason": "brief one-sentence explanation"}`
 
-// NewEffortClassifier creates a classifier that uses `claude --print` subprocess.
-// Uses the user's existing Claude Code subscription - no separate API key needed.
+// NewEffortClassifier creates a classifier backed by OMP RPC.
 func NewEffortClassifier() *EffortClassifier {
 	c := &EffortClassifier{
-		model:   "claude-haiku-4-5-20251001",
-		apiURL:  "https://api.anthropic.com/v1/messages",
+		model:   "",
+		apiURL:  "",
 		timeout: 30 * time.Second,
 		log:     logging.WithComponent("effort-classifier"),
 		cache:   make(map[string]string),
 	}
 	c.cmdRunner = c.defaultCmdRunner
 
-	// Auto-detect API key from environment for direct API mode
-	// PILOT_CLASSIFIER_API_KEY is checked first — dedicated key for classifier only.
-	// Falls back to ANTHROPIC_API_KEY, then OAuth token.
-	// IMPORTANT: Don't pass ANTHROPIC_API_KEY to container if CC should use OAuth
-	// subscription — CC auto-detects ANTHROPIC_API_KEY and bills to it instead.
-	for _, key := range []string{"PILOT_CLASSIFIER_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"} {
-		if v := os.Getenv(key); v != "" {
-			c.apiKey = v
-			c.log.Info("Effort classifier using direct API mode", slog.String("auth_source", key))
-			break
-		}
-	}
-
 	return c
 }
 
-// defaultCmdRunner executes the claude command.
+// defaultCmdRunner routes the legacy test seam through OMP RPC.
 func (c *EffortClassifier) defaultCmdRunner(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	return cmd.Output()
+	return runOMPCLICompat(ctx, args...)
 }
 
 // newEffortClassifierWithRunner creates a classifier with a custom command runner for testing.
@@ -118,8 +98,7 @@ func (c *EffortClassifier) SetUseStructuredOutput(enabled bool) {
 	c.useStructuredOutput = enabled
 }
 
-// Classify determines task effort level using LLM.
-// Tries direct API call first (lightweight), falls back to subprocess.
+// Classify determines task effort level using OMP.
 // Returns cached result if available for the given task ID.
 // Returns empty string on failure (allows fallback to static mapping).
 func (c *EffortClassifier) Classify(ctx context.Context, task *Task) string {
@@ -138,22 +117,7 @@ func (c *EffortClassifier) Classify(ctx context.Context, task *Task) string {
 		c.mu.Unlock()
 	}
 
-	// Try direct API call first (lightweight, ~1MB vs ~300MB subprocess)
-	var result string
-	var err error
-	if c.apiKey != "" {
-		result, err = c.classifyViaAPI(ctx, task)
-		if err != nil {
-			c.log.Warn("Direct API classification failed, trying subprocess",
-				slog.String("task_id", task.ID),
-				slog.Any("error", err),
-			)
-			// Fall through to subprocess
-			result, err = c.classifyViaSubprocess(ctx, task)
-		}
-	} else {
-		result, err = c.classifyViaSubprocess(ctx, task)
-	}
+	result, err := c.classifyViaSubprocess(ctx, task)
 
 	if err != nil {
 		c.log.Warn("LLM effort classification failed, falling back to static mapping",
@@ -279,8 +243,8 @@ func (c *EffortClassifier) classifyViaAPI(ctx context.Context, task *Task) (stri
 	return parseEffortResponse(text)
 }
 
-// classifyViaSubprocess calls Claude Code subprocess with Haiku model.
-// Uses --bare flag (CC 2.1.81+) to skip hooks/LSP/plugins for lighter memory.
+// classifyViaSubprocess executes a stateless OMP query. Its name remains so
+// existing tests can inject the command seam without coupling to RPC framing.
 func (c *EffortClassifier) classifyViaSubprocess(ctx context.Context, task *Task) (string, error) {
 	userContent := fmt.Sprintf("## Issue Title\n%s\n\n## Issue Description\n%s", task.Title, task.Description)
 
@@ -297,8 +261,7 @@ func (c *EffortClassifier) classifyViaSubprocess(ctx context.Context, task *Task
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Call claude --print --bare with Haiku model
-	// --bare (CC 2.1.81+): skips hooks, LSP, plugin sync = lighter memory
+	// The compatibility runner extracts prompt/model and executes OMP RPC.
 	var args []string
 	if c.useStructuredOutput {
 		args = []string{
@@ -321,11 +284,11 @@ func (c *EffortClassifier) classifyViaSubprocess(ctx context.Context, task *Task
 
 	output, err := c.cmdRunner(ctx, args...)
 	if err != nil {
-		return "", fmt.Errorf("claude command failed: %w", err)
+		return "", fmt.Errorf("OMP query failed: %w", err)
 	}
 
 	if len(output) == 0 {
-		return "", fmt.Errorf("empty response from claude")
+		return "", fmt.Errorf("empty response from OMP")
 	}
 
 	if c.useStructuredOutput {

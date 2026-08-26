@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -13,19 +12,16 @@ import (
 	"github.com/qf-studio/pilot/internal/logging"
 )
 
-// ComplexityClassifier uses Claude Code (Haiku model) to classify task complexity
+// ComplexityClassifier uses OMP to classify task complexity
 // instead of word-count heuristics. Falls back to heuristic on subprocess failure.
 // Caches results per task ID to avoid re-classification on retries.
-//
-// GH-868: Now uses `claude --print` subprocess instead of direct API calls,
-// leveraging the user's existing Claude Code subscription (no ANTHROPIC_API_KEY needed).
 type ComplexityClassifier struct {
 	model               string
 	timeout             time.Duration
 	log                 *slog.Logger
 	useStructuredOutput bool
 
-	// cmdRunner is the function that executes the claude command.
+	// cmdRunner is the function that executes a stateless agent query.
 	// Can be overridden for testing.
 	cmdRunner func(ctx context.Context, args ...string) ([]byte, error)
 
@@ -53,11 +49,10 @@ IMPORTANT: A detailed issue with clear step-by-step instructions is NOT complex 
 Respond with ONLY a JSON object (no markdown, no explanation):
 {"complexity": "TRIVIAL|SIMPLE|MEDIUM|COMPLEX|EPIC", "reason": "brief one-sentence explanation"}`
 
-// NewComplexityClassifier creates a classifier that uses `claude --print` subprocess.
-// Uses the user's existing Claude Code subscription - no separate API key needed.
+// NewComplexityClassifier creates a classifier backed by OMP RPC.
 func NewComplexityClassifier() *ComplexityClassifier {
 	c := &ComplexityClassifier{
-		model:   "claude-haiku-4-5-20251001",
+		model:   "",
 		timeout: 30 * time.Second,
 		log:     logging.WithComponent("complexity-classifier"),
 		cache:   make(map[string]Complexity),
@@ -66,10 +61,9 @@ func NewComplexityClassifier() *ComplexityClassifier {
 	return c
 }
 
-// defaultCmdRunner executes the claude command.
+// defaultCmdRunner routes the legacy test seam through OMP RPC.
 func (c *ComplexityClassifier) defaultCmdRunner(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	return cmd.Output()
+	return runOMPCLICompat(ctx, args...)
 }
 
 // newComplexityClassifierWithRunner creates a classifier with a custom command runner for testing.
@@ -79,12 +73,13 @@ func newComplexityClassifierWithRunner(runner func(ctx context.Context, args ...
 	return c
 }
 
-// SetUseStructuredOutput configures whether to use Claude Code's --json-schema structured output.
+// SetUseStructuredOutput is retained for configuration compatibility with
+// existing classifier tests. OMP always receives an explicit JSON prompt.
 func (c *ComplexityClassifier) SetUseStructuredOutput(enabled bool) {
 	c.useStructuredOutput = enabled
 }
 
-// Classify determines task complexity using Claude Code subprocess.
+// Classify determines task complexity using an OMP query.
 // Returns cached result if available for the given task ID.
 // Falls back to heuristic-based DetectComplexity on subprocess failure.
 func (c *ComplexityClassifier) Classify(ctx context.Context, task *Task) Complexity {
@@ -103,7 +98,7 @@ func (c *ComplexityClassifier) Classify(ctx context.Context, task *Task) Complex
 		c.mu.Unlock()
 	}
 
-	// Call Claude Code subprocess
+	// Call OMP query
 	result, err := c.classify(ctx, task)
 	if err != nil {
 		c.log.Warn("LLM classification failed, falling back to heuristic",
@@ -145,7 +140,7 @@ func (c *ComplexityClassifier) classify(ctx context.Context, task *Task) (Comple
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Call claude --print with Haiku model
+	// The compatibility runner extracts prompt/model and calls OMP RPC.
 	var args []string
 	if c.useStructuredOutput {
 		args = []string{
@@ -166,11 +161,11 @@ func (c *ComplexityClassifier) classify(ctx context.Context, task *Task) (Comple
 
 	output, err := c.cmdRunner(ctx, args...)
 	if err != nil {
-		return "", fmt.Errorf("claude command failed: %w", err)
+		return "", fmt.Errorf("OMP query failed: %w", err)
 	}
 
 	if len(output) == 0 {
-		return "", fmt.Errorf("empty response from claude")
+		return "", fmt.Errorf("empty response from OMP")
 	}
 
 	if c.useStructuredOutput {

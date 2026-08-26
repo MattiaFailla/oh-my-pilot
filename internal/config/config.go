@@ -547,7 +547,7 @@ func DefaultConfig() *Config {
 			Port: 9090,
 		},
 		Auth: &gateway.AuthConfig{
-			Type: gateway.AuthTypeClaudeCode,
+			Type: gateway.AuthTypeLocal,
 		},
 		Adapters: &AdaptersConfig{
 			Linear:      linear.DefaultConfig(),
@@ -584,7 +584,7 @@ func DefaultConfig() *Config {
 		},
 		Executor: executor.DefaultBackendConfig(),
 		Memory: &MemoryConfig{
-			Path:         filepath.Join(homeDir, ".pilot", "data"),
+			Path:         filepath.Join(homeDir, ".oh-my-pilot", "data"),
 			CrossProject: true,
 			Learning:     DefaultLearningConfig(),
 		},
@@ -945,10 +945,10 @@ func Save(config *Config, path string) error {
 	return nil
 }
 
-// DefaultConfigPath returns the default configuration file path (~/.pilot/config.yaml).
+// DefaultConfigPath returns the default configuration file path (~/.oh-my-pilot/config.yaml).
 func DefaultConfigPath() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".pilot", "config.yaml")
+	return filepath.Join(homeDir, ".oh-my-pilot", "config.yaml")
 }
 
 // Reload re-reads configuration from the given path and updates the receiver in-place.

@@ -69,20 +69,14 @@ func TestDefaultBackendConfig(t *testing.T) {
 	if config == nil {
 		t.Fatal("DefaultBackendConfig returned nil")
 	}
-	if config.Type != BackendTypeClaudeCode {
-		t.Errorf("Type = %q, want %q", config.Type, BackendTypeClaudeCode)
+	if config.Type != BackendTypeOMP {
+		t.Errorf("Type = %q, want %q", config.Type, BackendTypeOMP)
 	}
-	if config.ClaudeCode == nil {
-		t.Error("ClaudeCode config should not be nil")
+	if config.OMP == nil {
+		t.Fatal("OMP config should not be nil")
 	}
-	if config.ClaudeCode.Command != "claude" {
-		t.Errorf("ClaudeCode.Command = %q, want claude", config.ClaudeCode.Command)
-	}
-	if config.OpenCode == nil {
-		t.Error("OpenCode config should not be nil")
-	}
-	if config.OpenCode.ServerURL != "http://127.0.0.1:4096" {
-		t.Errorf("OpenCode.ServerURL = %q, want http://127.0.0.1:4096", config.OpenCode.ServerURL)
+	if config.OMP.Command != "omp" || config.OMP.Version != "18.0.5" {
+		t.Errorf("OMP = %#v, want command omp at version 18.0.5", config.OMP)
 	}
 	if config.MemoryInjection == nil {
 		t.Fatal("MemoryInjection config should not be nil")
@@ -110,11 +104,8 @@ func TestDefaultMemoryInjectionConfig(t *testing.T) {
 }
 
 func TestBackendConfigTypes(t *testing.T) {
-	if BackendTypeClaudeCode != "claude-code" {
-		t.Errorf("BackendTypeClaudeCode = %q, want claude-code", BackendTypeClaudeCode)
-	}
-	if BackendTypeOpenCode != "opencode" {
-		t.Errorf("BackendTypeOpenCode = %q, want opencode", BackendTypeOpenCode)
+	if BackendTypeOMP != "omp" {
+		t.Errorf("BackendTypeOMP = %q, want omp", BackendTypeOMP)
 	}
 }
 

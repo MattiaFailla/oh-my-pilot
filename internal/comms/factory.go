@@ -1,12 +1,10 @@
 package comms
 
 import (
-	"os"
 	"time"
 
 	"github.com/qf-studio/pilot/internal/executor"
 	"github.com/qf-studio/pilot/internal/intent"
-	"github.com/qf-studio/pilot/internal/llm"
 	"github.com/qf-studio/pilot/internal/memory"
 )
 
@@ -20,42 +18,13 @@ type ClassifierConfig struct {
 	HistoryTTL  time.Duration
 }
 
-// BuildClassifier bootstraps an intent classifier and conversation store.
-// Returns (nil, nil) when disabled or no API key is available (env fallback included).
-// Call sites do not need to guard for nil — comms.Handler handles nil classifiers gracefully.
+// BuildClassifier returns no classifier. Conversational classification previously
+// bypassed the executor through a provider HTTP client; OMP is now the only
+// model runtime and task execution uses its RPC transport instead.
 func BuildClassifier(cfg *ClassifierConfig, executorBackend *executor.BackendConfig) (intent.Classifier, *intent.ConversationStore) {
-	if cfg == nil || !cfg.Enabled {
-		return nil, nil
-	}
-
-	apiKey := cfg.APIKey
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, nil
-	}
-
-	client := intent.NewAnthropicClient(apiKey)
-	if executorBackend != nil {
-		if executorBackend.DefaultModel != "" {
-			client.SetModel(executorBackend.DefaultModel)
-		}
-		if executorBackend.APIBaseURL != "" {
-			client.SetAPIURL(executorBackend.APIBaseURL + "/v1/messages")
-		}
-	}
-
-	historySize := 10
-	if cfg.HistorySize > 0 {
-		historySize = cfg.HistorySize
-	}
-	historyTTL := 30 * time.Minute
-	if cfg.HistoryTTL > 0 {
-		historyTTL = cfg.HistoryTTL
-	}
-
-	return client, intent.NewConversationStore(historySize, historyTTL)
+	_ = cfg
+	_ = executorBackend
+	return nil, nil
 }
 
 // BotConfig holds the per-deployment bot configuration threaded from the root
@@ -71,29 +40,11 @@ type BotConfig struct {
 	Retrieval   RetrievalConfig
 }
 
-// BuildResponder constructs a Responder from BotConfig.
-// Returns nil when disabled or no API key is available (env fallback included).
-// Call sites do not need to guard for nil — comms.Handler handles nil gracefully.
+// BuildResponder returns no responder. The former direct provider-backed bot
+// responder is intentionally disabled in the OMP-only runtime.
 func BuildResponder(cfg *BotConfig) *Responder {
-	if cfg == nil || !cfg.Enabled {
-		return nil
-	}
-	apiKey := cfg.APIKey
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-	if apiKey == "" {
-		return nil
-	}
-	model := cfg.Model
-	if model == "" {
-		model = "claude-haiku-4-5-20251001"
-	}
-	answerModel := cfg.AnswerModel
-	if answerModel == "" {
-		answerModel = model
-	}
-	return newResponder(llm.NewClient(apiKey), answerModel, cfg.Persona, cfg.Retrieval)
+	_ = cfg
+	return nil
 }
 
 // HandlerDeps holds the per-adapter inputs needed to build a comms.Handler.
@@ -110,8 +61,7 @@ type HandlerDeps struct {
 	Store          *memory.Store
 	IssueCreator   IssueCreator
 	TaskIDPrefix   string
-	// ExecutorBackend is used by BuildClassifier to override the Anthropic model and URL.
-	// May be nil — the factory handles that gracefully.
+	// ExecutorBackend is retained for adapter configuration compatibility.
 	ExecutorBackend *executor.BackendConfig
 }
 

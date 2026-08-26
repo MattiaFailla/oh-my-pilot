@@ -172,12 +172,12 @@ func checkIntentClassifier(cfg *config.Config) (bool, string) {
 	if cfg.Executor == nil || cfg.Executor.PreFlightJudge == nil || !cfg.Executor.PreFlightJudge.Enabled {
 		return false, "executor.pre_flight_judge.enabled=false — issues dispatch without quality pre-screening"
 	}
-	claudeCmd := "claude"
-	if cfg.Executor.ClaudeCode != nil && cfg.Executor.ClaudeCode.Command != "" {
-		claudeCmd = cfg.Executor.ClaudeCode.Command
+	ompCmd := "omp"
+	if cfg.Executor.OMP != nil && cfg.Executor.OMP.Command != "" {
+		ompCmd = cfg.Executor.OMP.Command
 	}
-	if _, err := exec.LookPath(claudeCmd); err != nil {
-		return false, fmt.Sprintf("enabled in config but disabled at runtime: %q binary not found on PATH", claudeCmd)
+	if _, err := exec.LookPath(ompCmd); err != nil {
+		return false, fmt.Sprintf("enabled in config but disabled at runtime: %q binary not found on PATH", ompCmd)
 	}
 	return true, "executor.pre_flight_judge.enabled=true"
 }

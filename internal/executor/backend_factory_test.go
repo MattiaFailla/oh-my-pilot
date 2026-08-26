@@ -12,24 +12,19 @@ func TestNewBackend(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:       "nil config defaults to claude-code",
+			name:       "nil config defaults to OMP",
 			config:     nil,
-			expectType: BackendTypeClaudeCode,
+			expectType: BackendTypeOMP,
 		},
 		{
-			name:       "empty type defaults to claude-code",
+			name:       "empty type defaults to OMP",
 			config:     &BackendConfig{Type: ""},
-			expectType: BackendTypeClaudeCode,
+			expectType: BackendTypeOMP,
 		},
 		{
-			name:       "claude-code type",
-			config:     &BackendConfig{Type: BackendTypeClaudeCode},
-			expectType: BackendTypeClaudeCode,
-		},
-		{
-			name:       "opencode type",
-			config:     &BackendConfig{Type: BackendTypeOpenCode},
-			expectType: BackendTypeOpenCode,
+			name:       "OMP type",
+			config:     &BackendConfig{Type: BackendTypeOMP},
+			expectType: BackendTypeOMP,
 		},
 		{
 			name:        "unknown type",
@@ -70,14 +65,9 @@ func TestNewBackendFromType(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "claude-code",
-			backendType: BackendTypeClaudeCode,
-			expectType:  BackendTypeClaudeCode,
-		},
-		{
-			name:        "opencode",
-			backendType: BackendTypeOpenCode,
-			expectType:  BackendTypeOpenCode,
+			name:        "OMP",
+			backendType: BackendTypeOMP,
+			expectType:  BackendTypeOMP,
 		},
 		{
 			name:        "unknown",
@@ -107,7 +97,7 @@ func TestNewBackendFromType(t *testing.T) {
 	}
 }
 
-func TestNewBackendWithClaudeCodeConfig(t *testing.T) {
+func TestNewBackendRejectsLegacyConfig(t *testing.T) {
 	config := &BackendConfig{
 		Type: BackendTypeClaudeCode,
 		ClaudeCode: &ClaudeCodeConfig{
@@ -116,32 +106,15 @@ func TestNewBackendWithClaudeCodeConfig(t *testing.T) {
 		},
 	}
 
-	backend, err := NewBackend(config)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if backend.Name() != BackendTypeClaudeCode {
-		t.Errorf("Name() = %q, want %q", backend.Name(), BackendTypeClaudeCode)
-	}
-
-	// Verify it's a ClaudeCodeBackend
-	ccBackend, ok := backend.(*ClaudeCodeBackend)
-	if !ok {
-		t.Fatal("backend is not *ClaudeCodeBackend")
-	}
-	if ccBackend.config.Command != "/custom/claude" {
-		t.Errorf("Command = %q, want /custom/claude", ccBackend.config.Command)
+	if _, err := NewBackend(config); err == nil {
+		t.Fatal("expected legacy executor config to be rejected")
 	}
 }
 
-func TestNewBackendWithOpenCodeConfig(t *testing.T) {
+func TestNewBackendWithOMPConfig(t *testing.T) {
 	config := &BackendConfig{
-		Type: BackendTypeOpenCode,
-		OpenCode: &OpenCodeConfig{
-			ServerURL: "http://localhost:5000",
-			Model:     "anthropic/claude-opus-4",
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "/custom/omp"},
 	}
 
 	backend, err := NewBackend(config)
@@ -149,16 +122,15 @@ func TestNewBackendWithOpenCodeConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if backend.Name() != BackendTypeOpenCode {
-		t.Errorf("Name() = %q, want %q", backend.Name(), BackendTypeOpenCode)
+	if backend.Name() != BackendTypeOMP {
+		t.Errorf("Name() = %q, want %q", backend.Name(), BackendTypeOMP)
 	}
 
-	// Verify it's an OpenCodeBackend
-	ocBackend, ok := backend.(*OpenCodeBackend)
+	ompBackend, ok := backend.(*OMPBackend)
 	if !ok {
-		t.Fatal("backend is not *OpenCodeBackend")
+		t.Fatal("backend is not *OMPBackend")
 	}
-	if ocBackend.config.ServerURL != "http://localhost:5000" {
-		t.Errorf("ServerURL = %q, want http://localhost:5000", ocBackend.config.ServerURL)
+	if ompBackend.config.Command != "/custom/omp" {
+		t.Errorf("Command = %q, want /custom/omp", ompBackend.config.Command)
 	}
 }

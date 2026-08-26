@@ -12,8 +12,11 @@ import (
 type AuthType string
 
 const (
-	AuthTypeClaudeCode AuthType = "claude-code"
-	AuthTypeAPIToken   AuthType = "api-token"
+	AuthTypeLocal    AuthType = "local"
+	AuthTypeAPIToken AuthType = "api-token"
+	// AuthTypeClaudeCode is retained as a source-compatible alias for callers
+	// compiled against older releases. Serialized configuration must use local.
+	AuthTypeClaudeCode AuthType = AuthTypeLocal
 )
 
 // AuthConfig holds authentication configuration
@@ -35,8 +38,8 @@ func NewAuthenticator(config *AuthConfig) *Authenticator {
 // Authenticate validates a request
 func (a *Authenticator) Authenticate(r *http.Request) error {
 	switch a.config.Type {
-	case AuthTypeClaudeCode:
-		return a.authenticateClaudeCode(r)
+	case AuthTypeLocal:
+		return a.authenticateLocal(r)
 	case AuthTypeAPIToken:
 		return a.authenticateAPIToken(r)
 	default:
@@ -44,14 +47,12 @@ func (a *Authenticator) Authenticate(r *http.Request) error {
 	}
 }
 
-// authenticateClaudeCode validates Claude Code authentication
-func (a *Authenticator) authenticateClaudeCode(r *http.Request) error {
-	// Claude Code uses local socket authentication
-	// For now, accept all local connections
+// authenticateLocal validates local-only gateway access.
+func (a *Authenticator) authenticateLocal(r *http.Request) error {
 	if isLocalRequest(r) {
 		return nil
 	}
-	return errors.New("claude-code auth requires local connection")
+	return errors.New("local auth requires local connection")
 }
 
 // authenticateAPIToken validates API token authentication

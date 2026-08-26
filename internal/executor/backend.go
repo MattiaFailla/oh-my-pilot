@@ -7,9 +7,7 @@ import (
 	"github.com/qf-studio/pilot/internal/executor/ghguard"
 )
 
-// Backend defines the interface for AI execution backends.
-// Implementations handle the specifics of invoking different AI coding agents
-// (Claude Code, OpenCode, etc.) while providing a unified interface to the Runner.
+// Backend defines the interface for the OMP execution backend.
 type Backend interface {
 	// Name returns the backend identifier (e.g., "claude-code", "opencode")
 	Name() string
@@ -119,7 +117,16 @@ type ExecuteOptions struct {
 	// Branch is the task's working branch (the PR head once one exists).
 	// Sets PILOT_TASK_BRANCH for gh-guard (GH-4671).
 	Branch string
+
+	// HostToolHandler executes Pilot-owned OMP RPC tools. It is deliberately
+	// supplied by the runner so an OMP process cannot invoke runner-owned
+	// quality gates or GitHub lifecycle actions directly.
+	HostToolHandler OMPHostToolHandler
 }
+
+// OMPHostToolHandler handles one OMP host-tool invocation and returns the
+// textual result to send over the RPC protocol.
+type OMPHostToolHandler func(context.Context, string, map[string]any) (string, error)
 
 // BackendEvent represents a streaming event from the backend.
 // Each backend maps its native events to this common format.
@@ -315,7 +322,8 @@ type BackendResult struct {
 
 // BackendConfig contains configuration for executor backends.
 type BackendConfig struct {
-	// Type specifies which backend to use ("claude-code", "opencode", or "qwen-code")
+	// Type is retained only to produce a useful error for legacy configuration.
+	// OMP is the sole supported executor.
 	Type string `yaml:"type"`
 
 	// AutoCreatePR controls whether PRs are created by default after successful execution.
@@ -339,6 +347,10 @@ type BackendConfig struct {
 
 	// ClaudeCode contains Claude Code specific settings
 	ClaudeCode *ClaudeCodeConfig `yaml:"claude_code,omitempty"`
+
+	// OMP configures the Oh My Pi RPC executor. Provider credentials and
+	// provider selection live in the mounted OMP profile, never in Pilot.
+	OMP *OMPConfig `yaml:"omp,omitempty"`
 
 	// OpenCode contains OpenCode specific settings
 	OpenCode *OpenCodeConfig `yaml:"opencode,omitempty"`
@@ -474,6 +486,17 @@ type BackendConfig struct {
 	// Version is the Pilot binary version, set at startup from the build-time version var.
 	// Used for feature matrix updates and execution reports. Not a config file field.
 	Version string `yaml:"-"`
+}
+
+// OMPConfig configures the single supported agent runtime. The profile path is
+// passed as PI_CODING_AGENT_DIR to the child process and should be mounted
+// read-only by deployments.
+type OMPConfig struct {
+	Command    string   `yaml:"command,omitempty"`
+	ProfileDir string   `yaml:"profile_dir,omitempty"`
+	Version    string   `yaml:"version,omitempty"`
+	ExtraArgs  []string `yaml:"extra_args,omitempty"`
+	Thinking   string   `yaml:"thinking,omitempty"`
 }
 
 // EffectiveStallTimeout returns the stall detection threshold, applying the
@@ -641,7 +664,7 @@ type EffortClassifierConfig struct {
 func DefaultEffortClassifierConfig() *EffortClassifierConfig {
 	return &EffortClassifierConfig{
 		Enabled: true,
-		Model:   "claude-haiku-4-5-20251001",
+		Model:   "",
 		Timeout: "30s",
 	}
 }
@@ -682,7 +705,7 @@ func DefaultIntentJudgeConfig() *IntentJudgeConfig {
 	enabled := true
 	return &IntentJudgeConfig{
 		Enabled:      &enabled,
-		Model:        "claude-haiku-4-5-20251001",
+		Model:        "",
 		MaxDiffChars: 32000,
 		Timeout:      "60s",
 	}
@@ -828,9 +851,9 @@ type PlanningConfig struct {
 	Model string `yaml:"model,omitempty"`
 }
 
-// DefaultPlanningConfig returns the default planning config (Opus 4.7).
+// DefaultPlanningConfig leaves planning model selection to the OMP profile.
 func DefaultPlanningConfig() *PlanningConfig {
-	return &PlanningConfig{Model: "claude-opus-4-7"}
+	return &PlanningConfig{}
 }
 
 // DefaultAllowedToolsExecution is the default --allowedTools list for execution
@@ -903,26 +926,12 @@ func DefaultBackendConfig() *BackendConfig {
 	detectEphemeral := true
 	prePushLint := true
 	return &BackendConfig{
-		Type:            "claude-code",
-		AutoCreatePR:    &autoCreatePR,
-		DetectEphemeral: &detectEphemeral,
-		PrePushLint:     &prePushLint,
-		PlanningTimeout: 2 * time.Minute,
-		ClaudeCode: &ClaudeCodeConfig{
-			Command:      "claude",
-			AllowedTools: DefaultAllowedToolsExecution(),
-		},
-		QwenCode: &QwenCodeConfig{
-			Command: "qwen",
-		},
-		OpenCode: &OpenCodeConfig{
-			ServerURL:       "http://127.0.0.1:4096",
-			Model:           "anthropic/claude-sonnet-4-6",
-			Provider:        "anthropic",
-			AutoStartServer: true,
-			ServerCommand:   "opencode serve",
-			RequestTimeout:  "10m",
-		},
+		Type:             BackendTypeOMP,
+		AutoCreatePR:     &autoCreatePR,
+		DetectEphemeral:  &detectEphemeral,
+		PrePushLint:      &prePushLint,
+		PlanningTimeout:  2 * time.Minute,
+		OMP:              &OMPConfig{Command: "omp", Version: "18.0.5"},
 		ModelRouting:     DefaultModelRoutingConfig(),
 		Timeout:          DefaultTimeoutConfig(),
 		EffortRouting:    DefaultEffortRoutingConfig(),
@@ -940,24 +949,11 @@ func DefaultBackendConfig() *BackendConfig {
 	}
 }
 
-// DefaultModelRoutingConfig returns default model routing configuration.
-// Model routing is disabled by default; when enabled, uses Haiku for trivial
-// tasks (speed), Sonnet 4.6 for simple/medium tasks (near-Opus quality at 40%
-// lower cost), and Opus 4.6 for complex tasks (highest capability).
-//
-// Complexity detection criteria:
-//   - Trivial: Single-file changes, typos, logging, renames
-//   - Simple: Small fixes, add/remove fields, config updates
-//   - Medium: New endpoints, components, moderate refactoring
-//   - Complex: Architecture changes, multi-file refactors, migrations
+// DefaultModelRoutingConfig leaves provider and model selection to the OMP
+// profile. Deployments can opt in to explicit per-complexity OMP model IDs.
 func DefaultModelRoutingConfig() *ModelRoutingConfig {
 	return &ModelRoutingConfig{
-		Enabled: true,
-		Trivial: "claude-haiku",
-		Simple:  "claude-sonnet-4-6",
-		Medium:  "claude-sonnet-4-6",
-		// GH-2432: Sonnet for "complex" too — Opus is reserved for planning only.
-		Complex: "claude-sonnet-4-6",
+		Enabled: false,
 	}
 }
 
@@ -1102,6 +1098,7 @@ func DefaultSubprocessLimitsConfig() *SubprocessLimitsConfig {
 
 // BackendType constants for configuration.
 const (
+	BackendTypeOMP        = "omp"
 	BackendTypeClaudeCode = "claude-code"
 	BackendTypeOpenCode   = "opencode"
 	BackendTypeQwenCode   = "qwen-code"

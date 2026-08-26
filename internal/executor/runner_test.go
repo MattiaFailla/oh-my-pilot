@@ -30,20 +30,20 @@ func TestNewRunner(t *testing.T) {
 	if runner.backend == nil {
 		t.Error("backend not initialized")
 	}
-	if runner.backend.Name() != BackendTypeClaudeCode {
-		t.Errorf("default backend = %q, want %q", runner.backend.Name(), BackendTypeClaudeCode)
+	if runner.backend.Name() != BackendTypeOMP {
+		t.Errorf("default backend = %q, want %q", runner.backend.Name(), BackendTypeOMP)
 	}
 }
 
 func TestNewRunnerWithBackend(t *testing.T) {
-	backend := NewOpenCodeBackend(nil)
+	backend := NewOMPBackend(nil)
 	runner := NewRunnerWithBackend(backend)
 
 	if runner == nil {
 		t.Fatal("NewRunnerWithBackend returned nil")
 	}
-	if runner.backend.Name() != BackendTypeOpenCode {
-		t.Errorf("backend = %q, want %q", runner.backend.Name(), BackendTypeOpenCode)
+	if runner.backend.Name() != BackendTypeOMP {
+		t.Errorf("backend = %q, want %q", runner.backend.Name(), BackendTypeOMP)
 	}
 }
 
@@ -53,18 +53,14 @@ func TestNewRunnerWithBackendNil(t *testing.T) {
 	if runner == nil {
 		t.Fatal("NewRunnerWithBackend returned nil")
 	}
-	// Should default to Claude Code
-	if runner.backend.Name() != BackendTypeClaudeCode {
-		t.Errorf("backend = %q, want %q", runner.backend.Name(), BackendTypeClaudeCode)
+	if runner.backend.Name() != BackendTypeOMP {
+		t.Errorf("backend = %q, want %q", runner.backend.Name(), BackendTypeOMP)
 	}
 }
 
 func TestNewRunnerWithConfig(t *testing.T) {
 	config := &BackendConfig{
-		Type: BackendTypeOpenCode,
-		OpenCode: &OpenCodeConfig{
-			ServerURL: "http://localhost:5000",
-		},
+		Type: BackendTypeOMP,
 	}
 
 	runner, err := NewRunnerWithConfig(config)
@@ -74,19 +70,14 @@ func TestNewRunnerWithConfig(t *testing.T) {
 	if runner == nil {
 		t.Fatal("NewRunnerWithConfig returned nil")
 	}
-	if runner.backend.Name() != BackendTypeOpenCode {
-		t.Errorf("backend = %q, want %q", runner.backend.Name(), BackendTypeOpenCode)
+	if runner.backend.Name() != BackendTypeOMP {
+		t.Errorf("backend = %q, want %q", runner.backend.Name(), BackendTypeOMP)
 	}
 }
 
 func TestSelfReviewTimeout(t *testing.T) {
-	t.Run("opencode uses longer self-review timeout", func(t *testing.T) {
-		runner, err := NewRunnerWithConfig(&BackendConfig{
-			Type: BackendTypeOpenCode,
-			OpenCode: &OpenCodeConfig{
-				ServerURL: "http://localhost:5000",
-			},
-		})
+	t.Run("OMP uses the extended self-review timeout", func(t *testing.T) {
+		runner, err := NewRunnerWithConfig(&BackendConfig{Type: BackendTypeOMP})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -95,20 +86,10 @@ func TestSelfReviewTimeout(t *testing.T) {
 		}
 	})
 
-	t.Run("claude-code keeps short self-review timeout", func(t *testing.T) {
-		runner, err := NewRunnerWithConfig(&BackendConfig{Type: BackendTypeClaudeCode})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got := runner.selfReviewTimeout(); got != 2*time.Minute {
-			t.Fatalf("selfReviewTimeout() = %v, want %v", got, 2*time.Minute)
-		}
-	})
-
-	t.Run("default backend keeps short self-review timeout", func(t *testing.T) {
+	t.Run("default backend uses the extended self-review timeout", func(t *testing.T) {
 		r := &Runner{}
-		if got := r.selfReviewTimeout(); got != 2*time.Minute {
-			t.Fatalf("selfReviewTimeout() = %v, want %v", got, 2*time.Minute)
+		if got := r.selfReviewTimeout(); got != 10*time.Minute {
+			t.Fatalf("selfReviewTimeout() = %v, want %v", got, 10*time.Minute)
 		}
 	})
 }
@@ -126,15 +107,15 @@ func TestNewRunnerWithConfigInvalid(t *testing.T) {
 
 func TestRunnerSetBackend(t *testing.T) {
 	runner := NewRunner()
-	if runner.backend.Name() != BackendTypeClaudeCode {
-		t.Errorf("initial backend = %q, want %q", runner.backend.Name(), BackendTypeClaudeCode)
+	if runner.backend.Name() != BackendTypeOMP {
+		t.Errorf("initial backend = %q, want %q", runner.backend.Name(), BackendTypeOMP)
 	}
 
-	opencode := NewOpenCodeBackend(nil)
-	runner.SetBackend(opencode)
+	omp := NewOMPBackend(nil)
+	runner.SetBackend(omp)
 
-	if runner.backend.Name() != BackendTypeOpenCode {
-		t.Errorf("backend after set = %q, want %q", runner.backend.Name(), BackendTypeOpenCode)
+	if runner.backend.Name() != BackendTypeOMP {
+		t.Errorf("backend after set = %q, want %q", runner.backend.Name(), BackendTypeOMP)
 	}
 }
 
@@ -145,8 +126,8 @@ func TestRunnerGetBackend(t *testing.T) {
 	if backend == nil {
 		t.Fatal("GetBackend returned nil")
 	}
-	if backend.Name() != BackendTypeClaudeCode {
-		t.Errorf("backend = %q, want %q", backend.Name(), BackendTypeClaudeCode)
+	if backend.Name() != BackendTypeOMP {
+		t.Errorf("backend = %q, want %q", backend.Name(), BackendTypeOMP)
 	}
 }
 
@@ -2128,10 +2109,8 @@ func TestRunner_EnableDecomposition(t *testing.T) {
 func TestNewRunnerWithConfig_Decompose(t *testing.T) {
 	// Test that NewRunnerWithConfig wires decomposer from config
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "claude",
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "omp"},
 		Decompose: &DecomposeConfig{
 			Enabled:             true,
 			MinComplexity:       "complex",
@@ -2153,10 +2132,8 @@ func TestNewRunnerWithConfig_Decompose(t *testing.T) {
 func TestNewRunnerWithConfig_DecomposeDisabled(t *testing.T) {
 	// Test that disabled decompose config doesn't create decomposer
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "claude",
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "omp"},
 		Decompose: &DecomposeConfig{
 			Enabled: false, // Disabled
 		},
@@ -2262,10 +2239,8 @@ func TestSelfReviewSkipsTrivialTasks(t *testing.T) {
 // Test runner with SkipSelfReview config (GH-364)
 func TestNewRunnerWithConfig_SkipSelfReview(t *testing.T) {
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "claude",
-		},
+		Type:           BackendTypeOMP,
+		OMP:            &OMPConfig{Command: "omp"},
 		SkipSelfReview: true,
 	}
 
@@ -2286,10 +2261,8 @@ func TestNewRunnerWithConfig_SkipSelfReview(t *testing.T) {
 func TestNewRunnerWithConfig_IntentJudgeMaxDiffChars(t *testing.T) {
 	enabled := true
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "sh", // guaranteed present on PATH so exec.LookPath succeeds
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "sh"}, // guaranteed present on PATH so exec.LookPath succeeds
 		IntentJudge: &IntentJudgeConfig{
 			Enabled:      &enabled,
 			MaxDiffChars: 64000,
@@ -2313,10 +2286,8 @@ func TestNewRunnerWithConfig_IntentJudgeMaxDiffChars(t *testing.T) {
 func TestNewRunnerWithConfig_IntentJudgeDefaultMaxDiffChars(t *testing.T) {
 	enabled := true
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "sh",
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "sh"},
 		IntentJudge: &IntentJudgeConfig{
 			Enabled: &enabled,
 			// MaxDiffChars left zero - NewIntentJudge should apply the default.
@@ -2341,10 +2312,8 @@ func TestNewRunnerWithConfig_IntentJudgeDefaultMaxDiffChars(t *testing.T) {
 func TestNewRunnerWithConfig_IntentJudgeTimeout(t *testing.T) {
 	enabled := true
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "sh",
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "sh"},
 		IntentJudge: &IntentJudgeConfig{
 			Enabled: &enabled,
 			Timeout: "90s",
@@ -2369,10 +2338,8 @@ func TestNewRunnerWithConfig_IntentJudgeTimeout(t *testing.T) {
 func TestNewRunnerWithConfig_IntentJudgeDefaultTimeout(t *testing.T) {
 	enabled := true
 	config := &BackendConfig{
-		Type: "claude-code",
-		ClaudeCode: &ClaudeCodeConfig{
-			Command: "sh",
-		},
+		Type: BackendTypeOMP,
+		OMP:  &OMPConfig{Command: "sh"},
 		IntentJudge: &IntentJudgeConfig{
 			Enabled: &enabled,
 			// Timeout left empty - NewIntentJudge should apply the 60s default.
@@ -4055,22 +4022,14 @@ func TestRunnerFallbackModelName(t *testing.T) {
 			want: "glm-5.1",
 		},
 		{
-			name: "opencode falls back to OpenCode.Model",
-			cfg: &BackendConfig{
-				Type:     BackendTypeOpenCode,
-				OpenCode: &OpenCodeConfig{Model: "anthropic/claude-sonnet-4-6"},
-			},
-			want: "anthropic/claude-sonnet-4-6",
+			name: "OMP with no DefaultModel falls back to backend type",
+			cfg:  &BackendConfig{Type: BackendTypeOMP},
+			want: BackendTypeOMP,
 		},
 		{
-			name: "claude-code with no DefaultModel falls back to backend type",
-			cfg:  &BackendConfig{Type: BackendTypeClaudeCode},
-			want: BackendTypeClaudeCode,
-		},
-		{
-			name: "nil config returns claude-code default",
+			name: "nil config returns OMP default",
 			cfg:  nil,
-			want: "claude-code",
+			want: BackendTypeOMP,
 		},
 	}
 	for _, tt := range tests {

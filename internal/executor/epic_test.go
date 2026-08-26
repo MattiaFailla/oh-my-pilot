@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -652,14 +653,27 @@ func TestExecuteEpicTriggersPlanningMode(t *testing.T) {
 	}
 }
 
-// writeMockScript creates a temporary executable script that outputs the given text
-// and exits with the given code. Returns the path to the script.
+// writeMockScript creates an OMP RPC test double that returns the given text.
 func writeMockScript(t *testing.T, dir, output string, exitCode int) string {
 	t.Helper()
-	scriptPath := filepath.Join(dir, "mock-claude")
+	scriptPath := filepath.Join(dir, "mock-omp")
 	script := "#!/bin/sh\n"
-	if output != "" {
-		script += "cat <<'ENDOFOUTPUT'\n" + output + "\nENDOFOUTPUT\n"
+	if exitCode == 0 {
+		script += "printf '%s\\n' '{\"type\":\"ready\",\"supportedProtocolVersions\":[2]}'\nread protocol\nread tools\nread prompt\n"
+		if output != "" {
+			frame, err := json.Marshal(map[string]any{
+				"type": "message_update",
+				"assistantMessageEvent": map[string]any{
+					"type":  "text_delta",
+					"delta": output,
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal mock OMP output: %v", err)
+			}
+			script += "printf '%s' '" + base64.StdEncoding.EncodeToString(frame) + "' | base64 -d\nprintf '\\n'\n"
+		}
+		script += "printf '%s\\n' '{\"type\":\"agent_end\",\"isTerminal\":true}'\n"
 	}
 	script += "exit " + fmt.Sprintf("%d", exitCode) + "\n"
 	err := os.WriteFile(scriptPath, []byte(script), 0o755)
@@ -669,13 +683,12 @@ func writeMockScript(t *testing.T, dir, output string, exitCode int) string {
 	return scriptPath
 }
 
-// newTestRunner creates a Runner with a mock Claude command for testing PlanEpic.
-func newTestRunner(claudeCmd string) *Runner {
+// newTestRunner creates a Runner with a mock OMP command for testing PlanEpic.
+func newTestRunner(ompCmd string) *Runner {
 	return &Runner{
 		config: &BackendConfig{
-			ClaudeCode: &ClaudeCodeConfig{
-				Command: claudeCmd,
-			},
+			Type: BackendTypeOMP,
+			OMP:  &OMPConfig{Command: ompCmd},
 		},
 		running:           make(map[string]*exec.Cmd),
 		progressCallbacks: make(map[string]ProgressCallback),
@@ -773,8 +786,8 @@ func TestPlanEpicCLIFailure(t *testing.T) {
 		t.Error("PlanEpic should return nil plan on CLI failure")
 	}
 
-	if !strings.Contains(err.Error(), "claude planning failed") {
-		t.Errorf("error should mention claude planning failed, got: %v", err)
+	if !strings.Contains(err.Error(), "OMP planning failed") {
+		t.Errorf("error should mention OMP planning failed, got: %v", err)
 	}
 }
 
@@ -927,14 +940,12 @@ Step 3: Add tests`,
 }
 
 func TestPlanEpicDefaultCommand(t *testing.T) {
-	// When config is nil, PlanEpic defaults to "claude" command.
-	// We verify by setting config with empty command — it should default to "claude".
+	// When config is nil, PlanEpic defaults to "omp" command.
+	// We verify by setting config with an explicit nonexistent OMP command.
 	// Use a nonexistent binary to ensure it fails fast without hanging.
 	runner := &Runner{
 		config: &BackendConfig{
-			ClaudeCode: &ClaudeCodeConfig{
-				Command: "nonexistent-claude-binary-for-test",
-			},
+			OMP: &OMPConfig{Command: "nonexistent-omp-binary-for-test"},
 		},
 		running:           make(map[string]*exec.Cmd),
 		progressCallbacks: make(map[string]ProgressCallback),
@@ -954,11 +965,11 @@ func TestPlanEpicDefaultCommand(t *testing.T) {
 		t.Fatal("PlanEpic should fail when binary is not available")
 	}
 
-	if !strings.Contains(err.Error(), "claude planning failed") {
-		t.Errorf("error should indicate claude planning failed, got: %v", err)
+	if !strings.Contains(err.Error(), "OMP planning failed") {
+		t.Errorf("error should indicate OMP planning failed, got: %v", err)
 	}
 
-	// Also verify nil config uses "claude" default
+	// Also verify nil config uses the default OMP command.
 	runner2 := &Runner{
 		config:            nil,
 		running:           make(map[string]*exec.Cmd),
@@ -968,8 +979,8 @@ func TestPlanEpicDefaultCommand(t *testing.T) {
 		modelRouter:       NewModelRouter(nil, nil),
 	}
 
-	// GH-3579: isolate PATH so the default "claude" command can never resolve.
-	// This test previously spawned a LIVE claude session (with the real
+	// GH-3579: isolate PATH so the default "omp" command can never resolve.
+	// This test previously spawned a LIVE agent session (with the real
 	// decomposition prompt) on any machine where claude was installed.
 	t.Setenv("PATH", t.TempDir())
 

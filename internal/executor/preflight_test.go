@@ -10,19 +10,19 @@ import (
 	"testing"
 )
 
-func TestCheckClaudeAvailable(t *testing.T) {
+func TestCheckOMPAvailable(t *testing.T) {
 	ctx := context.Background()
 
-	// This test assumes claude CLI is installed
+	// This test assumes OMP is installed.
 	// If not installed, the test verifies the error handling
-	err := checkClaudeAvailable(ctx, "")
+	err := checkOMPAvailable(ctx, "")
 	if err != nil {
 		// Check it's a meaningful error
-		if !strings.Contains(err.Error(), "claude") {
-			t.Errorf("expected error to mention 'claude', got: %v", err)
+		if !strings.Contains(err.Error(), "omp") {
+			t.Errorf("expected error to mention 'omp', got: %v", err)
 		}
 	}
-	// If no error, claude is installed and working
+	// If no error, OMP is installed and working.
 }
 
 func TestCheckGitRepo(t *testing.T) {
@@ -346,19 +346,19 @@ func TestGetChecksWithoutGitClean(t *testing.T) {
 
 	// Should still contain other checks
 	hasGitRepo := false
-	hasClaudeAvailable := false
+	hasOMPAvailable := false
 	for _, check := range checks {
 		if check.Name == "git_repo" {
 			hasGitRepo = true
 		}
-		if check.Name == "claude_available" {
-			hasClaudeAvailable = true
+		if check.Name == "omp_available" {
+			hasOMPAvailable = true
 		}
 	}
 	if !hasGitRepo {
 		t.Error("git_repo check should still be present")
 	}
-	if !hasClaudeAvailable {
-		t.Error("claude_available check should still be present")
+	if !hasOMPAvailable {
+		t.Error("omp_available check should still be present")
 	}
 }

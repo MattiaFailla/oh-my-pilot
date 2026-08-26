@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -9,17 +8,17 @@ import (
 // GH-2432: "Opus plans, Sonnet executes" — verify the Sonnet/Opus split,
 // AllowedTools/MCPConfig wiring, and Stop-hook default flip.
 
-func TestDefaultBackendConfig_SonnetForComplex(t *testing.T) {
+func TestDefaultBackendConfig_LeavesModelRoutingToOMPProfile(t *testing.T) {
 	cfg := DefaultBackendConfig()
-	if got, want := cfg.ModelRouting.Complex, "claude-sonnet-4-6"; got != want {
-		t.Errorf("ModelRouting.Complex = %q, want %q (GH-2432: Opus reserved for planning only)", got, want)
+	if cfg.ModelRouting.Enabled {
+		t.Error("ModelRouting should be disabled by default so the OMP profile selects models")
 	}
 }
 
-func TestDefaultPlanningConfig_OpusModel(t *testing.T) {
+func TestDefaultPlanningConfig_UsesOMPProfileModel(t *testing.T) {
 	cfg := DefaultPlanningConfig()
-	if cfg.Model != "claude-opus-4-7" {
-		t.Errorf("Planning.Model default = %q, want claude-opus-4-7", cfg.Model)
+	if cfg.Model != "" {
+		t.Errorf("Planning.Model default = %q, want empty profile-selected model", cfg.Model)
 	}
 }
 
@@ -28,22 +27,18 @@ func TestDefaultBackendConfig_PlanningWired(t *testing.T) {
 	if cfg.Planning == nil {
 		t.Fatal("DefaultBackendConfig() should populate Planning (GH-2432)")
 	}
-	if cfg.Planning.Model != "claude-opus-4-7" {
-		t.Errorf("DefaultBackendConfig.Planning.Model = %q, want claude-opus-4-7", cfg.Planning.Model)
+	if cfg.Planning.Model != "" {
+		t.Errorf("DefaultBackendConfig.Planning.Model = %q, want empty profile-selected model", cfg.Planning.Model)
 	}
 }
 
-func TestDefaultClaudeCodeConfig_AllowedToolsExecution(t *testing.T) {
+func TestDefaultOMPConfig(t *testing.T) {
 	cfg := DefaultBackendConfig()
-	if cfg.ClaudeCode == nil {
-		t.Fatal("DefaultBackendConfig.ClaudeCode is nil")
+	if cfg.OMP == nil {
+		t.Fatal("DefaultBackendConfig.OMP is nil")
 	}
-	want := DefaultAllowedToolsExecution()
-	if !reflect.DeepEqual(cfg.ClaudeCode.AllowedTools, want) {
-		t.Errorf("ClaudeCode.AllowedTools = %v, want %v", cfg.ClaudeCode.AllowedTools, want)
-	}
-	if cfg.ClaudeCode.MCPConfigPath != "" {
-		t.Errorf("ClaudeCode.MCPConfigPath = %q, want empty (no MCPs by default)", cfg.ClaudeCode.MCPConfigPath)
+	if cfg.OMP.Command != "omp" {
+		t.Errorf("OMP.Command = %q, want omp", cfg.OMP.Command)
 	}
 }
 
@@ -81,21 +76,16 @@ func TestExecuteOptions_HasAllowedToolsAndMCPConfigPath(t *testing.T) {
 	}
 }
 
-func TestRunner_ExecutionToolOptions_FromConfig(t *testing.T) {
+func TestRunner_ExecutionToolOptions_UsesOMPHostTools(t *testing.T) {
 	r := &Runner{
-		config: &BackendConfig{
-			ClaudeCode: &ClaudeCodeConfig{
-				AllowedTools:  []string{"Read", "Edit"},
-				MCPConfigPath: "/path/to/mcp.json",
-			},
-		},
+		config: &BackendConfig{OMP: &OMPConfig{Command: "omp"}},
 	}
 	allowed, mcp := r.executionToolOptions()
-	if !reflect.DeepEqual(allowed, []string{"Read", "Edit"}) {
-		t.Errorf("allowed = %v, want [Read Edit]", allowed)
+	if allowed != nil {
+		t.Errorf("allowed = %v, want nil", allowed)
 	}
-	if mcp != "/path/to/mcp.json" {
-		t.Errorf("mcp = %q, want /path/to/mcp.json", mcp)
+	if mcp != "" {
+		t.Errorf("mcp = %q, want empty", mcp)
 	}
 }
 

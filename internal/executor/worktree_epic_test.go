@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,20 +31,19 @@ func TestWorktreeEpicIntegration(t *testing.T) {
 	// Create mock scripts directory
 	mockDir := t.TempDir()
 
-	// Mock Claude script that outputs a valid epic plan with 2 subtasks
-	mockClaudeScript := filepath.Join(mockDir, "mock-claude")
-	claudeOutput := `Here's the implementation plan:
+	// Mock OMP script that outputs a valid epic plan with 2 subtasks
+	mockOMPScript := filepath.Join(mockDir, "mock-omp")
+	ompOutput := `Here's the implementation plan:
 
 1. **Add database schema** - Create migration files for the new tables
 2. **Implement API endpoints** - Build REST endpoints with validation`
-	writeMockScriptWithPathCapture(t, mockClaudeScript, claudeOutput, 0)
+	writeMockScriptWithPathCapture(t, mockOMPScript, ompOutput, 0)
 
 	// Create runner with worktree mode enabled
 	runner := &Runner{
 		config: &BackendConfig{
-			ClaudeCode: &ClaudeCodeConfig{
-				Command: mockClaudeScript,
-			},
+			Type:        BackendTypeOMP,
+			OMP:         &OMPConfig{Command: mockOMPScript},
 			UseWorktree: true,
 		},
 		running:           make(map[string]*exec.Cmd),
@@ -379,12 +380,26 @@ func TestWorktreeEpicBranchOperations(t *testing.T) {
 	}
 }
 
-// writeMockScriptWithPathCapture creates a mock script that outputs text and can capture execution path.
+// writeMockScriptWithPathCapture creates an OMP RPC mock that outputs text.
 func writeMockScriptWithPathCapture(t *testing.T, path, output string, exitCode int) {
 	t.Helper()
 	script := "#!/bin/sh\n"
-	if output != "" {
-		script += "cat <<'ENDOFOUTPUT'\n" + output + "\nENDOFOUTPUT\n"
+	if exitCode == 0 {
+		script += "printf '%s\\n' '{\"type\":\"ready\",\"supportedProtocolVersions\":[2]}'\nread protocol\nread tools\nread prompt\n"
+		if output != "" {
+			frame, err := json.Marshal(map[string]any{
+				"type": "message_update",
+				"assistantMessageEvent": map[string]any{
+					"type":  "text_delta",
+					"delta": output,
+				},
+			})
+			if err != nil {
+				t.Fatalf("marshal mock OMP output: %v", err)
+			}
+			script += "printf '%s' '" + base64.StdEncoding.EncodeToString(frame) + "' | base64 -d\nprintf '\\n'\n"
+		}
+		script += "printf '%s\\n' '{\"type\":\"agent_end\",\"isTerminal\":true}'\n"
 	}
 	script += fmt.Sprintf("exit %d\n", exitCode)
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {

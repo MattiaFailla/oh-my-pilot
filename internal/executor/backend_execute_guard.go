@@ -67,6 +67,9 @@ var ErrProjectPathNotIsolated = errors.New("backend execute: project path not is
 // executionPath == task.ProjectPath.
 func (r *Runner) backendExecute(ctx context.Context, task *Task, executionPath string, opts ExecuteOptions) (*BackendResult, error) {
 	opts.ProjectPath = executionPath
+	if opts.HostToolHandler == nil && task != nil {
+		opts.HostToolHandler = r.ompHostToolHandler(task, executionPath)
+	}
 
 	worktreeExpected := task != nil && r.config != nil && r.config.UseWorktree && task.Branch != "" && !task.DirectCommit
 	if worktreeExpected && opts.ProjectPath == task.ProjectPath {

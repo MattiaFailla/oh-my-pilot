@@ -3,13 +3,12 @@ package executor
 import "testing"
 
 // TestResolveSelectedModel_GH2450 covers the regression where setting
-// `default_model` clobbered `model_routing` for the Claude Code backend,
+// `default_model` clobbered `model_routing` for the OMP backend,
 // causing the routed model to be wiped to "" before reaching the backend.
 //
 // Cases:
-//   - (a) model_routing.simple set + CC backend → router model wins
-//   - (b) model_routing unset + CC backend     → empty (CC passthrough preserved)
-//   - (c) router empty + non-CC backend with default_model → default_model
+//   - (a) model_routing.simple set + OMP backend → router model wins
+//   - (b) model_routing unset + OMP backend → default_model
 func TestResolveSelectedModel_GH2450(t *testing.T) {
 	// Force ComplexitySimple via a short description (word count < 10).
 	task := &Task{
@@ -25,7 +24,7 @@ func TestResolveSelectedModel_GH2450(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "model_routing wins for CC backend",
+			name: "model_routing wins for OMP backend",
 			routing: &ModelRoutingConfig{
 				Enabled: true,
 				Simple:  "claude-sonnet-4-6",
@@ -34,28 +33,17 @@ func TestResolveSelectedModel_GH2450(t *testing.T) {
 				Trivial: "claude-haiku-4-5",
 			},
 			config: &BackendConfig{
-				Type:         BackendTypeClaudeCode,
+				Type:         BackendTypeOMP,
 				DefaultModel: "claude-opus-4-7",
 			},
 			want: "claude-sonnet-4-6",
 		},
 		{
 			// GH-2807: use explicit Enabled:false to represent "user disabled routing".
-			// nil routing now uses the default which is enabled:true.
-			name:    "model_routing unset + CC backend → passthrough",
+			name:    "model_routing unset + OMP backend → default_model",
 			routing: &ModelRoutingConfig{Enabled: false},
 			config: &BackendConfig{
-				Type:         BackendTypeClaudeCode,
-				DefaultModel: "claude-opus-4-7",
-			},
-			want: "",
-		},
-		{
-			// GH-2807: use explicit Enabled:false to represent "user disabled routing".
-			name:    "non-CC backend falls back to default_model when router empty",
-			routing: &ModelRoutingConfig{Enabled: false},
-			config: &BackendConfig{
-				Type:         BackendTypeOpenCode,
+				Type:         BackendTypeOMP,
 				DefaultModel: "claude-opus-4-7",
 			},
 			want: "claude-opus-4-7",
