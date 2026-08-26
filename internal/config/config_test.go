@@ -572,6 +572,28 @@ adapters:
 		}
 	})
 
+	t.Run("CommentedReferencesAreIgnored", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "config.yaml")
+
+		configContent := `
+version: "1.0"
+# token: "${UNSET_COMMENTED_TOKEN}"
+auth:
+  type: "local" # token: "${UNSET_INLINE_COMMENT_TOKEN}"
+gateway:
+  host: "127.0.0.1"
+  port: 9090
+`
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			t.Fatalf("Failed to write test config: %v", err)
+		}
+
+		if _, err := Load(configPath); err != nil {
+			t.Fatalf("Load should ignore environment references in YAML comments, got error: %v", err)
+		}
+	})
+
 	t.Run("RealConfigStillLoads", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")

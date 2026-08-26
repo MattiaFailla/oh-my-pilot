@@ -742,7 +742,12 @@ var sensitiveConfigKeyPattern = regexp.MustCompile(`(?i)(token|key|secret|passwo
 // logs a warning and lets expansion proceed unchanged.
 func checkEnvVarReferences(raw string) error {
 	for i, line := range strings.Split(raw, "\n") {
-		for _, m := range envVarRefPattern.FindAllStringSubmatch(line, -1) {
+		activeLine := stripYAMLComment(line)
+		if strings.TrimSpace(activeLine) == "" {
+			continue
+		}
+
+		for _, m := range envVarRefPattern.FindAllStringSubmatch(activeLine, -1) {
 			varName := m[1]
 			if varName == "" {
 				varName = m[2]
@@ -751,14 +756,45 @@ func checkEnvVarReferences(raw string) error {
 				continue
 			}
 
-			key := configKeyFromLine(line)
+			key := configKeyFromLine(activeLine)
 			if sensitiveConfigKeyPattern.MatchString(key) {
-				return fmt.Errorf("config: environment variable %q referenced by sensitive key %q at line %d is unset or empty: %s", varName, key, i+1, strings.TrimSpace(line))
+				return fmt.Errorf("config: environment variable %q referenced by sensitive key %q at line %d is unset or empty: %s", varName, key, i+1, strings.TrimSpace(activeLine))
 			}
-			log.Printf("WARN: config: environment variable %q at line %d is unset or empty: %s", varName, i+1, strings.TrimSpace(line))
+			log.Printf("WARN: config: environment variable %q at line %d is unset or empty: %s", varName, i+1, strings.TrimSpace(activeLine))
 		}
 	}
 	return nil
+}
+
+// stripYAMLComment returns the active portion of a YAML line. A # starts a
+// comment only when it occurs outside quotes and is separated from the value
+// by whitespace; hashes embedded in quoted strings and URLs remain intact.
+func stripYAMLComment(line string) string {
+	inSingleQuote := false
+	inDoubleQuote := false
+
+	for index := 0; index < len(line); index++ {
+		switch line[index] {
+		case '\\':
+			if inDoubleQuote {
+				index++
+			}
+		case '\'':
+			if !inDoubleQuote {
+				inSingleQuote = !inSingleQuote
+			}
+		case '"':
+			if !inSingleQuote {
+				inDoubleQuote = !inDoubleQuote
+			}
+		case '#':
+			if !inSingleQuote && !inDoubleQuote && (index == 0 || line[index-1] == ' ' || line[index-1] == '\t') {
+				return line[:index]
+			}
+		}
+	}
+
+	return line
 }
 
 // configKeyFromLine extracts the YAML key (if any) from a single line, e.g.
