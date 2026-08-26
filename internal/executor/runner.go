@@ -4155,14 +4155,14 @@ retrySucceeded:
 					return result, nil
 				}
 
-				log.Warn("Claude made no commits, retrying with explicit instruction",
+				log.Warn("Agent made no commits, retrying with explicit instruction",
 					slog.String("task_id", task.ID),
 					slog.String("branch", task.Branch),
 				)
 				r.reportProgress(task.ID, "Retry", 91, "No commits detected, retrying...")
 
 				// Build retry prompt with explicit instruction.
-				// GH-2777: Offer DECLINED:<reason> as an escape hatch so Claude can
+				// GH-2777: Offer DECLINED:<reason> as an escape hatch so the agent can
 				// signal that a task is genuinely unactionable rather than silently
 				// producing no output. The DECLINED path avoids the pilot-failed label
 				// and adds pilot-needs-clarification instead.
@@ -4277,9 +4277,9 @@ Only use DECLINED if implementation is truly impossible or undefined. Do not dec
 					// refusal reason instead of a generic "no changes" string.
 					result.Outcome = "no_op" // TASK-358: no edits made, not a code failure
 					if refusal != "" {
-						result.Error = fmt.Sprintf("no_changes: Claude completed but made no code changes after retry — %s", refusal)
+						result.Error = fmt.Sprintf("no_changes: agent completed but made no code changes after retry — %s", refusal)
 					} else {
-						result.Error = "no_changes: Claude completed but made no code changes after retry"
+						result.Error = "no_changes: agent completed but made no code changes after retry"
 					}
 					if backendResult != nil {
 						backendResult.ErrorType = string(ErrorTypeNoChanges)
@@ -4287,10 +4287,10 @@ Only use DECLINED if implementation is truly impossible or undefined. Do not dec
 							backendResult.LastAssistantText = refusal
 						}
 					}
-					log.Error("No commits after retry",
+					log.Warn("No commits after retry",
 						slog.String("task_id", task.ID),
 					)
-					r.reportProgress(task.ID, "Failed", 100, result.Error)
+					r.reportProgress(task.ID, "No-op", 100, result.Error)
 
 					// GH-2328: persist no_changes classification + refusal text.
 					r.persistBackendDiagnostics(task.LogExecutionID(), backendResult)

@@ -1724,6 +1724,68 @@ func setupDashboardLogging(cfg *config.Config) {
 // for pending approvals past their expires_at.
 const approvalExpirySweepInterval = 1 * time.Minute
 
+// startupAutopilotRecoveryTimeout bounds the background reconciliation of
+// existing and recently merged pull requests. Recovery remains best-effort on
+// timeout, but it must never hold the dashboard, gateway, or issue pollers
+// hostage during daemon startup.
+const startupAutopilotRecoveryTimeout = 2 * time.Minute
+
+func startAutopilotStartupRecovery(ctx context.Context, controllers map[string]*autopilot.Controller, scanWindow, stagger time.Duration) {
+	if len(controllers) == 0 {
+		return
+	}
+
+	logging.SafeGo("autopilot-startup-recovery", func() {
+		log := logging.WithComponent("autopilot")
+		recoveryCtx, cancel := context.WithTimeout(ctx, startupAutopilotRecoveryTimeout)
+		defer cancel()
+		startedAt := time.Now()
+		log.Info("starting background autopilot PR recovery",
+			slog.Int("repos", len(controllers)),
+			slog.Duration("timeout", startupAutopilotRecoveryTimeout),
+		)
+
+		autopilot.StaggerRepoScans(recoveryCtx, controllers, stagger, func(scanCtx context.Context, repoName string, controller *autopilot.Controller) {
+			repoStartedAt := time.Now()
+			log.Info("recovering existing and merged PRs in background",
+				slog.String("repo", repoName),
+				slog.Duration("window", scanWindow),
+			)
+			if err := controller.ScanExistingPRs(scanCtx); err != nil {
+				log.Warn("background existing-PR recovery failed",
+					slog.String("repo", repoName),
+					slog.Any("error", err),
+				)
+			}
+			if scanCtx.Err() == nil {
+				if err := controller.ScanRecentlyMergedPRsAtStartup(scanCtx, scanWindow); err != nil {
+					log.Warn("background merged-PR recovery failed",
+						slog.String("repo", repoName),
+						slog.Any("error", err),
+					)
+				}
+			}
+			if scanCtx.Err() == nil {
+				log.Info("background autopilot PR recovery completed",
+					slog.String("repo", repoName),
+					slog.Duration("duration", time.Since(repoStartedAt).Round(time.Millisecond)),
+				)
+			}
+		})
+
+		if err := recoveryCtx.Err(); err != nil && !errors.Is(err, context.Canceled) {
+			log.Warn("background autopilot PR recovery timed out; remaining recovery will retry later",
+				slog.Duration("timeout", startupAutopilotRecoveryTimeout),
+				slog.Duration("elapsed", time.Since(startedAt).Round(time.Millisecond)),
+			)
+			return
+		}
+		log.Info("background autopilot PR recovery finished",
+			slog.Duration("duration", time.Since(startedAt).Round(time.Millisecond)),
+		)
+	})
+}
+
 // expirablePendingHandler is satisfied by any approval handler that persists
 // pending requests and needs its own timeout sweep post-restart (currently
 // *approval.TelegramHandler and *approval.SlackHandler; GH-3825, GH-4411).
@@ -3397,43 +3459,11 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 					scanStagger = cfg.Orchestrator.Autopilot.ScanStaggerInterval
 				}
 
-				// GH-4391: stagger per-repo startup scans (jittered, serialized)
-				// instead of bursting every repo's ScanExistingPRs +
-				// ScanRecentlyMergedPRsAtStartup back-to-back — that burst is what
-				// exhausted the entire shared GitHub rate budget within an hour in
-				// the 2026-07-16 incident and 403'd every issue poller for 67+
-				// minutes. Start/Run still fire immediately after each repo's own
-				// scan completes, so a staggered repo isn't left un-polled any
-				// longer than its own scan takes.
-				autopilot.StaggerRepoScans(ctx, autopilotControllers, scanStagger, func(ctx context.Context, repoName string, controller *autopilot.Controller) {
-					// Scan for existing PRs
-					if err := controller.ScanExistingPRs(ctx); err != nil {
-						logging.WithComponent("autopilot").Warn("failed to scan existing PRs",
-							slog.String("repo", repoName),
-							slog.Any("error", err),
-						)
-					}
-
-					// Scan for recently merged PRs (GH-416). TASK-399/GH-4209: startup
-					// uses a wide-lookback catch-up sweep — not the periodic loop's
-					// 30-min scanWindow — so a merge that landed while the daemon was
-					// down still self-heals its execution row (and any orphaned
-					// 'running' rows resolve) instead of staying red in HISTORY
-					// forever. GH-4391: the window is now configurable (default 72h,
-					// down from the previous hardcoded 720h) and shrinks further on
-					// restart via a per-repo cursor persisted across process
-					// lifetimes (ScanRecentlyMergedPRsAtStartup).
-					if err := controller.ScanRecentlyMergedPRsAtStartup(ctx, startupScanWindow); err != nil {
-						logging.WithComponent("autopilot").Warn("failed to scan merged PRs",
-							slog.String("repo", repoName),
-							slog.Any("error", err),
-						)
-					}
-
-					// GH-2970: startup recovery sweep for stale parent issues
+				// Start runtime supervision before recovery so the dashboard, gateway,
+				// and issue pollers become available immediately after this block. The
+				// potentially slow GitHub history scans run below in the background.
+				for repoName, controller := range autopilotControllers {
 					controller.Start(ctx)
-
-					// Start controller run loop
 					go func(c *autopilot.Controller, repo string) {
 						if err := c.Run(ctx); err != nil && err != context.Canceled {
 							logging.WithComponent("autopilot").Error("autopilot controller stopped",
@@ -3442,7 +3472,12 @@ func runPollingMode(cmd *cobra.Command, cfg *config.Config, projectPath string, 
 							)
 						}
 					}(controller, repoName)
-				})
+				}
+
+				// GH-4391: stagger scans to protect the shared GitHub rate budget.
+				// Running the scans in a bounded background job preserves that safety
+				// while preventing historical PR recovery from delaying startup.
+				startAutopilotStartupRecovery(ctx, autopilotControllers, startupScanWindow, scanStagger)
 
 				if len(autopilotControllers) > 0 && !dashboardMode {
 					// GH-4611: use EnvironmentName() (same resolution path as the

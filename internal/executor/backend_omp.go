@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -93,13 +94,21 @@ func (b *OMPBackend) Execute(ctx context.Context, opts ExecuteOptions) (*Backend
 	}
 	args = append(args, b.config.ExtraArgs...)
 
+	profileDir, agentDir, err := ompProfilePaths(b.config.ProfileDir)
+	if err != nil {
+		return nil, err
+	}
+
 	cmd := exec.CommandContext(ctx, b.config.Command, args...)
 	cmd.Dir = opts.ProjectPath
 	configureProcessGroup(cmd)
 	cmd.Cancel = func() error { return killProcessGroup(cmd, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), "PILOT_EXECUTOR=1")
-	if b.config.ProfileDir != "" {
-		cmd.Env = append(cmd.Env, "PI_CODING_AGENT_DIR="+b.config.ProfileDir)
+	if profileDir != "" {
+		cmd.Env = append(cmd.Env,
+			"PI_CONFIG_DIR="+profileDir,
+			"PI_CODING_AGENT_DIR="+agentDir,
+		)
 	}
 
 	stdin, err := cmd.StdinPipe()
@@ -198,6 +207,28 @@ func (b *OMPBackend) Execute(ctx context.Context, opts ExecuteOptions) (*Backend
 			}
 		}
 	}
+}
+
+// ompProfilePaths resolves the configured OMP config root and its shared agent
+// session directory. Environment variable values are not shell-expanded, so
+// a configured ~/.omp must become an absolute path before launching OMP.
+func ompProfilePaths(profileDir string) (string, string, error) {
+	profileDir = strings.TrimSpace(profileDir)
+	if profileDir == "" {
+		return "", "", nil
+	}
+	if profileDir == "~" || strings.HasPrefix(profileDir, "~/") || strings.HasPrefix(profileDir, `~\`) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", "", fmt.Errorf("resolve OMP profile home directory: %w", err)
+		}
+		profileDir = filepath.Join(homeDir, profileDir[1:])
+	}
+	profileDir, err := filepath.Abs(profileDir)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve OMP profile directory: %w", err)
+	}
+	return filepath.Clean(profileDir), filepath.Join(profileDir, "agent"), nil
 }
 
 // RunOMPQuery executes a stateless, non-interactive query for executor
@@ -333,6 +364,13 @@ func (b *OMPBackend) handleFrame(ctx context.Context, stdin io.Writer, frame []b
 		if hasTerminal && !terminal {
 			return false, nil
 		}
+		stopReason, errorMessage := ompAgentEndStatus(message)
+		if stopReason == "error" || stopReason == "aborted" {
+			if errorMessage == "" {
+				errorMessage = "agent ended without a completion message"
+			}
+			return false, fmt.Errorf("OMP agent %s: %s", stopReason, errorMessage)
+		}
 		if result.LastAssistantText == "" {
 			result.LastAssistantText = ompAssistantText(message)
 		}
@@ -341,6 +379,29 @@ func (b *OMPBackend) handleFrame(ctx context.Context, stdin io.Writer, frame []b
 		return true, nil
 	}
 	return false, nil
+}
+
+// ompAgentEndStatus extracts the terminal assistant status from an agent_end
+// frame. OMP represents provider failures as a terminal assistant message with
+// stopReason "error", rather than as an RPC-level response error.
+func ompAgentEndStatus(message map[string]any) (string, string) {
+	stopReason, _ := message["stopReason"].(string)
+	errorMessage, _ := message["errorMessage"].(string)
+	messages, _ := message["messages"].([]any)
+	for index := len(messages) - 1; index >= 0; index-- {
+		assistant, _ := messages[index].(map[string]any)
+		if assistant["role"] != "assistant" {
+			continue
+		}
+		if value, ok := assistant["stopReason"].(string); ok && value != "" {
+			stopReason = value
+		}
+		if value, ok := assistant["errorMessage"].(string); ok && value != "" {
+			errorMessage = value
+		}
+		break
+	}
+	return strings.TrimSpace(stopReason), strings.TrimSpace(errorMessage)
 }
 
 func (b *OMPBackend) respondHostTool(ctx context.Context, stdin io.Writer, request map[string]any, handler OMPHostToolHandler) error {

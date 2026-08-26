@@ -488,9 +488,8 @@ type BackendConfig struct {
 	Version string `yaml:"-"`
 }
 
-// OMPConfig configures the single supported agent runtime. The profile path is
-// passed as PI_CODING_AGENT_DIR to the child process and should be mounted
-// read-only by deployments.
+// OMPConfig configures the single supported agent runtime. ProfileDir is the
+// OMP config root; execution uses its agent subdirectory for shared sessions.
 type OMPConfig struct {
 	Command    string   `yaml:"command,omitempty"`
 	ProfileDir string   `yaml:"profile_dir,omitempty"`

@@ -3,6 +3,7 @@
 # Hooks installed:
 #   - pre-commit: Secret pattern detection + knowledge-graph drift check
 #   - pre-push: Full validation gate (build, lint, test, secrets, integration)
+#   - post-commit: Refresh the development binary
 
 set -e
 
@@ -195,11 +196,35 @@ EOF
 chmod +x "$HOOKS_DIR/pre-push"
 
 echo "✓ Pre-push hook installed"
+
+# Install post-commit hook. Keep the validation in a tracked script so every
+# checkout gets identical behavior and can use the Docker fallback on systems
+# without a host Go toolchain.
+cat > "$HOOKS_DIR/post-commit" << 'EOF'
+#!/bin/bash
+set -u
+
+HOOK_DIR="$(dirname "$0")"
+PROJECT_ROOT="$(cd "$HOOK_DIR/../.." && pwd)"
+POST_COMMIT_SCRIPT="$PROJECT_ROOT/scripts/post-commit-dev.sh"
+
+if [ ! -x "$POST_COMMIT_SCRIPT" ]; then
+    echo "⚠️  Post-commit script not found or not executable: $POST_COMMIT_SCRIPT" >&2
+    exit 0
+fi
+
+exec "$POST_COMMIT_SCRIPT"
+EOF
+
+chmod +x "$HOOKS_DIR/post-commit"
+
+echo "✓ Post-commit hook installed"
 echo ""
 echo "Hooks installed:"
 echo "  • pre-commit: Checks for realistic secrets in test files + knowledge-graph drift"
 echo "  • pre-push:   Runs full validation gate (build, lint, test, secrets, knowledge-graph)"
 echo "                Docs-only pushes (no *.go/go.mod/go.sum in the diff) use a fast path"
 echo "                (check-secrets + check-graph only) — see .agent/sops/quality/pre-push-gate.md"
+echo "  • post-commit: Rebuilds bin/oh-my-pilot for development"
 echo ""
 echo "Use '--no-verify' to bypass hooks (not recommended)."
