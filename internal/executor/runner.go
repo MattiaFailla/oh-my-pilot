@@ -2583,14 +2583,14 @@ func (r *Runner) executeWithOptions(ctx context.Context, task *Task, allowWorktr
 				slog.Int("pool_available", r.worktreeManager.PoolAvailable()),
 			)
 			var result *WorktreeResult
-			result, err = r.worktreeManager.Acquire(ctx, task.ID, task.Branch, "")
+			result, err = r.worktreeManager.Acquire(ctx, task.ID, task.Branch, task.BaseBranch)
 			if err == nil {
 				worktreePath = result.Path
 				cleanup = result.Cleanup
 			}
 		} else {
 			worktreePath, cleanup, err = CreateWorktreeWithBranch(
-				ctx, task.ProjectPath, task.ID, task.Branch, "")
+				ctx, task.ProjectPath, task.ID, task.Branch, task.BaseBranch)
 		}
 
 		if err != nil {

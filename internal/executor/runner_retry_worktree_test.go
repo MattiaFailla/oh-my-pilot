@@ -93,6 +93,44 @@ func TestRunner_NoCommitRetry_RunsInWorktree(t *testing.T) {
 	}
 }
 
+// TestRunner_WorktreeUsesTaskBaseBranch verifies that a configured project
+// branch reaches worktree creation. Repositories whose default branch is
+// master must not require an origin/main ref to execute a task.
+func TestRunner_WorktreeUsesTaskBaseBranch(t *testing.T) {
+	localRepo, remoteRepo := setupSyncTestRepos(t, "master")
+	defer func() { _ = os.RemoveAll(localRepo) }()
+	defer func() { _ = os.RemoveAll(remoteRepo) }()
+
+	backend := &retryPathRecordingBackend{}
+	runner := NewRunnerWithBackend(backend)
+	runner.config = &BackendConfig{UseWorktree: true}
+	runner.SetSkipPreflightChecks(true)
+	runner.SetRecordingEnabled(false)
+
+	task := &Task{
+		ID:          "GH-master-base",
+		Title:       "run from configured master branch",
+		Description: "the backend makes no changes",
+		ProjectPath: localRepo,
+		Branch:      "pilot/GH-master-base",
+		BaseBranch:  "master",
+		CreatePR:    true,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	_, _ = runner.Execute(ctx, task)
+
+	paths := backend.paths()
+	if len(paths) == 0 {
+		t.Fatal("expected the backend to run; worktree creation must use the configured master branch")
+	}
+	if !strings.Contains(paths[0], "pilot-worktree-") {
+		t.Errorf("backend ProjectPath %q should be an isolated worktree", paths[0])
+	}
+}
+
 // commitAndRecordBackend records the ProjectPath of every Execute call and
 // creates a real commit in that path, so the runner proceeds past the
 // no-commit checks into the quality-gate loop.
