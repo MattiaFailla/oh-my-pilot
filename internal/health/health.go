@@ -967,24 +967,24 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 		}
 	}
 
-	// Detect approval/env mismatch: an env has require_approval=true but the
-	// approval.pre_merge stage is disabled → every PR in that env deadlocks.
+	// Detect approval/env mismatch only when autopilot can merge PRs. A
+	// review-first deployment with auto_merge disabled never enters the
+	// pre-merge approval stage, so dormant environments must not make doctor
+	// fail.
 	preMergeEnabled := cfg.Approval != nil &&
 		cfg.Approval.Enabled &&
 		cfg.Approval.PreMerge != nil &&
 		cfg.Approval.PreMerge.Enabled
-	if cfg.Orchestrator != nil && cfg.Orchestrator.Autopilot != nil &&
-		cfg.Orchestrator.Autopilot.Environments != nil {
-		for envName, envCfg := range cfg.Orchestrator.Autopilot.Environments {
-			if envCfg != nil && envCfg.RequireApproval && !preMergeEnabled {
-				checks = append(checks, ConfigCheck{
-					Name:    "approval-misconfig",
-					Status:  StatusError,
-					Message: fmt.Sprintf("env %q has require_approval=true but approval.pre_merge.enabled=false → all PRs will deadlock until enabled or env is changed", envName),
-					Fix:     "Set approval.enabled: true + approval.pre_merge.enabled: true + add an approver, or set require_approval: false for the environment",
-				})
-				break // one diagnostic per run is enough
-			}
+	approvalRoutingRequired := autopilotApprovalRequired(cfg)
+	if cfg.Orchestrator != nil && cfg.Orchestrator.Autopilot != nil && approvalRoutingRequired {
+		ap := cfg.Orchestrator.Autopilot
+		if activeEnv := ap.ResolvedEnvOrDefault(); activeEnv != nil && activeEnv.RequireApproval && !preMergeEnabled {
+			checks = append(checks, ConfigCheck{
+				Name:    "approval-misconfig",
+				Status:  StatusError,
+				Message: fmt.Sprintf("active environment %q has require_approval=true but approval.pre_merge.enabled=false → PRs will deadlock until enabled or the environment is changed", ap.EnvironmentName()),
+				Fix:     "Set approval.enabled: true + approval.pre_merge.enabled: true + add an approver, or set require_approval: false for the active environment",
+			})
 		}
 	}
 
@@ -992,6 +992,9 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 	// approval (even when its env doesn't) — same deadlock risk as the
 	// env-level check above, scoped per-project.
 	for _, p := range cfg.Projects {
+		if !approvalRoutingRequired {
+			break
+		}
 		if p == nil || p.Approval == nil || p.Approval.RequireApproval == nil || !*p.Approval.RequireApproval {
 			continue
 		}
@@ -1017,7 +1020,8 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 	// conservative approximation (it can under-report for webhook-mode
 	// Telegram/GitHub gaps) but still catches the common
 	// forgot-to-enable-the-adapter case.
-	if cfg.Orchestrator != nil && cfg.Orchestrator.Autopilot != nil && cfg.Orchestrator.Autopilot.Enabled {
+	if approvalRoutingRequired && cfg.Orchestrator != nil && cfg.Orchestrator.Autopilot != nil {
+		ap := cfg.Orchestrator.Autopilot
 		telegramRegistered := cfg.Adapters.Telegram != nil && cfg.Adapters.Telegram.Enabled && cfg.Adapters.Telegram.BotToken != "" &&
 			(cfg.Adapters.Telegram.Approval == nil || cfg.Adapters.Telegram.Approval.Enabled)
 		slackRegistered := cfg.Adapters.Slack != nil && cfg.Adapters.Slack.Enabled && cfg.Adapters.Slack.BotToken != "" &&
@@ -1063,15 +1067,9 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 			})
 		}
 
-		reportUnregistered("orchestrator.autopilot.approval_source", string(cfg.Orchestrator.Autopilot.ApprovalSource))
-		for envName, envCfg := range cfg.Orchestrator.Autopilot.Environments {
-			if envCfg == nil || envCfg.ApprovalSource == "" {
-				continue
-			}
-			reportUnregistered(fmt.Sprintf("orchestrator.autopilot.environments[%s].approval_source", envName), string(envCfg.ApprovalSource))
-		}
+		reportUnregistered("orchestrator.autopilot.approval_source", string(ap.EffectiveApprovalSource()))
 		for _, p := range cfg.Projects {
-			if p == nil || p.Approval == nil || p.Approval.ApprovalSource == nil {
+			if p == nil || p.Approval == nil || p.Approval.RequireApproval == nil || !*p.Approval.RequireApproval || p.Approval.ApprovalSource == nil {
 				continue
 			}
 			reportUnregistered(fmt.Sprintf("projects[%s].approval.approval_source", p.Name), string(*p.Approval.ApprovalSource))
@@ -1112,6 +1110,26 @@ func checkConfig(cfg *config.Config) []ConfigCheck {
 	}
 
 	return checks
+}
+
+func autopilotApprovalRequired(cfg *config.Config) bool {
+	if cfg == nil || cfg.Orchestrator == nil || cfg.Orchestrator.Autopilot == nil {
+		return false
+	}
+
+	ap := cfg.Orchestrator.Autopilot
+	if !ap.Enabled || !ap.AutoMerge {
+		return false
+	}
+	if activeEnv := ap.ResolvedEnvOrDefault(); activeEnv != nil && activeEnv.RequireApproval {
+		return true
+	}
+	for _, project := range cfg.Projects {
+		if project != nil && project.Approval != nil && project.Approval.RequireApproval != nil && *project.Approval.RequireApproval {
+			return true
+		}
+	}
+	return false
 }
 
 // checkFeatures checks feature availability

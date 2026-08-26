@@ -980,6 +980,9 @@ func TestCheckConfig_ApprovalMisconfig_Detected(t *testing.T) {
 	// env has require_approval=true but approval.pre_merge is disabled → StatusError
 	cfg := config.DefaultConfig()
 	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
+	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = true
+	cfg.Orchestrator.Autopilot.DefaultEnvironment = "stage"
 	cfg.Orchestrator.Autopilot.Environments = map[string]*autopilot.EnvironmentConfig{
 		"stage": {RequireApproval: true},
 	}
@@ -1009,6 +1012,9 @@ func TestCheckConfig_ApprovalMisconfig_NotReported_WhenPreMergeEnabled(t *testin
 	// env has require_approval=true AND approval.pre_merge is enabled → no misconfig check
 	cfg := config.DefaultConfig()
 	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
+	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = true
+	cfg.Orchestrator.Autopilot.DefaultEnvironment = "stage"
 	cfg.Orchestrator.Autopilot.Environments = map[string]*autopilot.EnvironmentConfig{
 		"stage": {RequireApproval: true},
 	}
@@ -1444,6 +1450,9 @@ func TestCheckConfig_ApprovalMisconfig_NotReported_WhenNoEnvRequiresApproval(t *
 	// No env requires approval → no misconfig check even if approval is disabled
 	cfg := config.DefaultConfig()
 	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
+	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = true
+	cfg.Orchestrator.Autopilot.DefaultEnvironment = "stage"
 	cfg.Orchestrator.Autopilot.Environments = map[string]*autopilot.EnvironmentConfig{
 		"stage": {RequireApproval: false},
 	}
@@ -1459,6 +1468,21 @@ func TestCheckConfig_ApprovalMisconfig_NotReported_WhenNoEnvRequiresApproval(t *
 	}
 }
 
+func TestCheckConfig_ApprovalChecksSkippedForManualMerges(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
+	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = false
+	cfg.Adapters.Telegram = nil
+
+	checks := checkConfig(cfg)
+	for _, c := range checks {
+		if c.Name == "approval-misconfig" || c.Name == "approval-source-unregistered" {
+			t.Errorf("unexpected %s check for manual-merge autopilot: %+v", c.Name, c)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GH-4774: per-project approval overlay doctor checks
 // ---------------------------------------------------------------------------
@@ -1469,6 +1493,9 @@ func TestCheckConfig_ApprovalMisconfig_Detected_ProjectOverride(t *testing.T) {
 	requireApproval := true
 	cfg := config.DefaultConfig()
 	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
+	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = true
+	cfg.Orchestrator.Autopilot.DefaultEnvironment = "stage"
 	cfg.Orchestrator.Autopilot.Environments = map[string]*autopilot.EnvironmentConfig{
 		"stage": {RequireApproval: false},
 	}
@@ -1503,7 +1530,13 @@ func TestCheckConfig_ApprovalSourceUnregistered_Detected(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
 	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = true
 	cfg.Orchestrator.Autopilot.ApprovalSource = autopilot.ApprovalSourceTelegram
+	cfg.Orchestrator.Autopilot.DefaultEnvironment = "stage"
+	cfg.Orchestrator.Autopilot.Environments = map[string]*autopilot.EnvironmentConfig{
+		"stage": {RequireApproval: true},
+	}
+	cfg.Approval = &approval.Config{Enabled: true, PreMerge: &approval.StageConfig{Enabled: true}}
 	cfg.Adapters.Telegram = nil
 
 	checks := checkConfig(cfg)
@@ -1529,7 +1562,13 @@ func TestCheckConfig_ApprovalSourceUnregistered_NotReported_WhenRegistered(t *te
 	cfg := config.DefaultConfig()
 	cfg.Orchestrator.Autopilot = autopilot.DefaultConfig()
 	cfg.Orchestrator.Autopilot.Enabled = true
+	cfg.Orchestrator.Autopilot.AutoMerge = true
 	cfg.Orchestrator.Autopilot.ApprovalSource = autopilot.ApprovalSourceTelegram
+	cfg.Orchestrator.Autopilot.DefaultEnvironment = "stage"
+	cfg.Orchestrator.Autopilot.Environments = map[string]*autopilot.EnvironmentConfig{
+		"stage": {RequireApproval: true},
+	}
+	cfg.Approval = &approval.Config{Enabled: true, PreMerge: &approval.StageConfig{Enabled: true}}
 	cfg.Adapters.Telegram = &telegram.Config{Enabled: true, BotToken: "test-bot-token"}
 	cfg.Projects = []*config.ProjectConfig{
 		{Name: "work-app", Approval: &autopilot.ProjectApprovalOverride{ApprovalSource: &slackSource}},

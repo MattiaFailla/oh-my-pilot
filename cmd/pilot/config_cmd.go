@@ -289,7 +289,7 @@ func newConfigValidateCmd() *cobra.Command {
 				}
 				if cfg.Adapters.GitHub != nil && cfg.Adapters.GitHub.Enabled {
 					hasAdapter = true
-					if cfg.Adapters.GitHub.Token == "" && os.Getenv("GITHUB_TOKEN") == "" {
+					if cfg.Adapters.GitHub.Token == "" && os.Getenv("GITHUB_TOKEN") == "" && exec.Command("gh", "auth", "status").Run() != nil {
 						warnings = append(warnings, "GitHub enabled but token not set")
 					}
 				}
